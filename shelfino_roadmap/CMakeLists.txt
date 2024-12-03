@@ -10,9 +10,10 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(obstacles_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(path_interface REQUIRED)
 
 add_executable(send_roadmap src/send_roadmap.cpp)
-ament_target_dependencies(send_roadmap rclcpp obstacles_msgs geometry_msgs)
+ament_target_dependencies(send_roadmap rclcpp obstacles_msgs geometry_msgs path_interface)
 
 INSTALL(TARGETS
   send_roadmap

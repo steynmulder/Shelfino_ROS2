@@ -1,0 +1,2 @@
+path_interface/GraphNode start
+path_interface/GraphNode end
