@@ -63,19 +63,17 @@ double get_yaw_from_q (geometry_msgs::msg::Quaternion q)
 class follow_client : public rclcpp::Node
 {
 private:
-  int difficulty, n_pursuers = 1;
   bool roadmap_ready = false;
 
   Pose gate_pose;
   bool gate_pose_ready = false;
 
-  Pose evader_pose;
-  Pose pursuer_pose;
+  Pose shelfino_pose;
 
   rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr shelfino_pose_sub_;
 
   rclcpp::Subscription<PoseArray>::SharedPtr gates_pose_sub_;
-  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr evader_ready_pub_;
+  rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shelfino_ready_pub_;
   rclcpp::Service<Empty>::SharedPtr start_service_;
 
   rclcpp_action::Client<ComputePathToPose>::SharedPtr compute_path_to_pose_client_;
@@ -87,7 +85,6 @@ public:
 
 private:
   void handle_shelfino_pose(const PoseWithCovarianceStamped::SharedPtr msg);
-  void handle_pursuer_pose(const PoseWithCovarianceStamped::SharedPtr msg);
 
   void handle_gate_pose(const PoseArray::SharedPtr msg);
 
@@ -103,9 +100,7 @@ private:
   void result_path_planning_callback(
     const ClientComputePathToPoseGoalHandle::WrappedResult & result);
 
-
   void move(const Path& path);
-  void choose_gates_wrapper_(const std::vector<Pose>& gates);  
 
   void goal_response_path_following_callback(
     const ClientFollowPathGoalHandle::SharedPtr & goal_handle);
