@@ -1,22 +1,23 @@
 #include "evader/evader.hpp"
 
 
-Follow_server::Follow_server() : Node("Follow_server")
+Evader::Follow_server() : Node("Follow_server")
 {
   // Define the QoS
   auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
-
 
   auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
   rclcpp::SubscriptionOptions amcl_pose_options;
   amcl_pose_options.callback_group = amcl_pose_cb_group;
 
-  // Listen to the /evader/amcl_pose topic
+  // Listen to the /shelfino#/amcl_pose topic
   this->evader_pose_sub_ = this->create_subscription<PoseWithCovarianceStamped>(
-    "/evader/amcl_pose", qos, std::bind(&Evader::handle_evader_pose, this, std::placeholders::_1),
+    "/evader/amcl_pose", qos, std::bind(&Evader::handle_shelfino_pose, this, std::placeholders::_1),       // "topic_name" ?
     amcl_pose_options
   );
+
+
 
   // Listen to the /gate_pose topic
   this->gates_pose_sub_ = this->create_subscription<PoseArray>(
@@ -41,7 +42,7 @@ Follow_server::Follow_server() : Node("Follow_server")
   RCLCPP_INFO(this->get_logger(), "Evader node created.");
 }
 
-void Follow_server::handle_evader_pose(const PoseWithCovarianceStamped::SharedPtr msg)
+void Follow_server::handle_shelfino_pose(const PoseWithCovarianceStamped::SharedPtr msg)
 {
   RCLCPP_INFO(this->get_logger(), "Received evader pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
   this->evader_pose = msg->pose.pose;
@@ -196,8 +197,8 @@ int main(int argc, char * argv[])
 {
   RCLCPP_INFO(rclcpp::get_logger("Follow_server"), "Starting evader node.");
   srand(time(NULL));
-  rclcpp::init(argc, argv);
-  auto node = std::make_shared<Follow_server>();
+  rclcpp::init(argc, argv);                                       // initializes ROS2 C++ client library
+  auto node = std::make_shared<follow_server>();                  // create a node named "follow_server"
   rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;

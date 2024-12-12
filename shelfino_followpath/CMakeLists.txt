@@ -7,6 +7,12 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
@@ -22,5 +28,17 @@ if(BUILD_TESTING)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
+
+add_executable(shelfino_followpath src/Follow_client.cpp)
+target_link_libraries(shelfino_followpath ${rclcpp_LIBRARIES})
+ament_target_dependencies(shelfino_followpath
+	rclcpp
+	rclcpp_action
+	std_msgs
+	geometry_msgs
+	nav_msgs
+	nav2_msgs
+)
+install(TARGETS shelfino_followpath DESTINATION lib /${PROJECT_NAME})
 
 ament_package()
