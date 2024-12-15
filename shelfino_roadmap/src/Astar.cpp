@@ -2,16 +2,17 @@
 #include <cmath>
 #include <set>
 #include <algorithm>
+#include <map>
 #include "Dubins.h"
 
-std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id)
+std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id, std::map<id_t, GVertex>& graph)
 {
 	std::vector<id_t> dest;
-    std::multiset<Vertex*, CompareF> openSet;
-    std::set<Vertex> closedSet;
+    std::multiset<GVertex*, CompareF> openSet;
+    std::set<GVertex> closedSet;
 
-	Vertex *Vcurrent, *Vnext;
-	openSet.insert(this->getGraph()->getVertexById(start_id));
+	GVertex *Vcurrent, *Vnext;
+	openSet.insert(&graph[start_id]);
 	do
 	{
         Vcurrent = *openSet.begin();
@@ -20,20 +21,20 @@ std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id)
 		if(Vcurrent->getStateID() == end_id) break; //If I find destination vertex
 		closedSet.insert(*Vcurrent);
 
-		for (const Edge& i : (*Vcurrent).getEdgeList())
+		for (const GEdge& i : (*Vcurrent).getEdgeList())
 		{
-            Vnext = this->getGraph()->getVertexById(i.getDestVID());
+            Vnext = &graph[i.getDestVID()];
 			if (closedSet.find(*Vnext) != closedSet.end()) continue;
 			
 			// Compute Dubins path cost instead of straight-line edge cost
             double dubinsCost = dubinsShortestPath(
                 Vcurrent->getx(), Vcurrent->gety(), Vcurrent->getOrientation(),  // Current vertex
                 Vnext->getx(), Vnext->gety(), Vnext->getOrientation(),          // Next vertex
-                this->getGraph()->getTurningRadius()).L;                            // Turning radius
+                1.0).L;                            // Turning radius TODO GET RADIUS
 
             // Total cost calculation
             auto g = Vcurrent->getg() + dubinsCost;
-            auto f = g + heuristic_distance_estimator(*Vnext, *this->getGraph()->getVertexById(end_id));
+            auto f = g + heuristic_distance_estimator(*Vnext, graph[end_id]);
 
 			if (openSet.count(Vnext)==0){   //If openSet does not contain Vnext
 				Vnext->setf(f);
@@ -48,11 +49,11 @@ std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id)
 		}
 	} while (!openSet.empty());
 
-    Vertex* current = this->getGraph()->getVertexById(end_id);
+    GVertex* current = &graph[end_id];
 
-    while (current != this->getGraph()->getVertexById(start_id)) {
+    while (current != &graph[start_id]) {
         dest.push_back(current->getStateID());
-        current = this->getGraph()->getVertexById(current->getPredecessor());
+        current = &graph[current->getPredecessor()];
     }
     dest.push_back(current->getStateID());
     std::reverse(dest.begin(), dest.end());
@@ -60,7 +61,7 @@ std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id)
     return dest;
 }
 
-double Astar::heuristic_distance_estimator(const Vertex& vnext, const Vertex& vend)
+double Astar::heuristic_distance_estimator(const GVertex& vnext, const GVertex& vend)
 {
 	return sqrt((vend.getx() - vnext.getx()) * (vend.getx() - vnext.getx()) + (vend.gety() - vnext.gety()) * (vend.gety() - vnext.gety()));
 }

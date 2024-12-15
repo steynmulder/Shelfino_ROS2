@@ -22,7 +22,7 @@ public:
     std::string getName() const;
 
     void setLength(double length);  
-    // void updateLengthWithDubins(double turningRadius);  
+    void updateLengthWithDubins(double sx, double dx, double sy, double dy, double sor, double dor, double turningRadius);  
 
     void print();
     GEdge &operator=(const GEdge &);

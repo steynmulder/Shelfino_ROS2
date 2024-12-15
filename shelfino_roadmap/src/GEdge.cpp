@@ -29,15 +29,12 @@ void GEdge::setLength(double length)
     this->length = length;  // Allow dynamic updates to the length
 }
 
-// void GEdge::updateLengthWithDubins(const Vertex& source, const Vertex& dest, double turningRadius)
-// {
-//     // Calculate Dubins path length between source and destination vertices
-//     this->length = dubinsShortestPath(
-//         source.getx(), source.gety(), source.getOrientation(),
-//         dest.getx(), dest.gety(), dest.getOrientation(),
-//         turningRadius
-//     ).L;
-// }
+void GEdge::updateLengthWithDubins(double sx, double dx, double sy, double dy, double sor, double dor, double turningRadius)
+{
+    // Calculate Dubins path length between source and destination vertices
+    DubinsCurve d = dubinsShortestPath(sx, sy, sor, dx, dy, dor, turningRadius);
+    this->length = d.L;
+}
 
 id_t GEdge::getSourceVID() const
 {

@@ -1,4 +1,5 @@
 #include <map>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
@@ -12,7 +13,7 @@ class AStarPlanner : public rclcpp::Node {
 		}
 
         // for graph construction
-		map<id_t, Vertex> vertices;
+		std::map<id_t, GVertex> vertices;
 
 
         void getGraph(float x, float y) {
@@ -20,6 +21,7 @@ class AStarPlanner : public rclcpp::Node {
 				RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
 				return;
 			}
+
 
 			auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
 			request->x = x;
@@ -30,17 +32,39 @@ class AStarPlanner : public rclcpp::Node {
 
 
 			try {
-				auto graph_edges = this->graph_response_->graph.edges;
-				auto graph_vertices = this->graph_response_->graph.vertices;
-				id_t id = 0;
+				auto graph_vertices = this->graph_response_->vertices;
+				std::map<id_t, std::vector<id_t>> graph_edges;
 				for (auto vertex : graph_vertices) {
-					Vertex v = {id, "", vertex.x, vertex.y, 0.0};
-					id++;
+					GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
+					for (auto edge : vertex.edges) {
+						graph_edges[vertex.id].push_back(edge);
+					}
+					vertices[vertex.id] = v;
 				}
-                // RCLCPP_INFO(this->get_logger(), "%zu", this->graph_response_->graph.edges.size());
-				// for (auto edge : this->graph_response_->graph.edges) {
-				// 	RCLCPP_INFO(this->get_logger(), "(%f, %f) - (%f, %f)", edge.start.x, edge.start.y, edge.end.x, edge.end.y);
-				// }
+
+
+				for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+					for (id_t edge_id : graph_edges[it->first]) {
+
+						float dist = sqrt(pow(it->second.getx() - vertices[edge_id].getx(), 2) + pow(it->second.gety() - vertices[edge_id].gety(), 2));
+						it->second.addEdge(edge_id, dist, "");
+					}
+					
+				}
+
+				RCLCPP_INFO(this->get_logger(), "#vertices: %zu", vertices.size());
+
+				Astar astar;
+
+				std::vector<id_t> path = astar.findPath(this->graph_response_->start_id, this->graph_response_->gate_id, vertices);
+
+				for (auto id : path) {
+				RCLCPP_INFO(this->get_logger(), "path id: %d", id);
+
+				}
+
+				RCLCPP_INFO(this->get_logger(), "path size: %zu", path.size());
+
 				
 			} catch (const std::exception &e) {
             	RCLCPP_ERROR(this->get_logger(), "Service call for generate_graph failed: %s", e.what());

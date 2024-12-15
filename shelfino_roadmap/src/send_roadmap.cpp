@@ -9,7 +9,10 @@
 #include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "obstacles_msgs/msg/obstacle_msg.hpp"
 #include "geometry_msgs/msg/polygon.hpp"
+#include "geometry_msgs/msg/pose.hpp"
+#include "geometry_msgs/msg/pose_array.hpp"
 #include "path_interface/srv/generate_graph.hpp"
+
 #include "GVertex.h"
 #include "GEdge.h"
 
@@ -22,11 +25,26 @@ class RoadmapServer : public rclcpp::Node
     RoadmapServer()
     : Node("send_roadmap")
     {
-      subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
-      "/obstacles", 10, bind(&RoadmapServer::obstacles_callback, this, _1));
-      subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
-      "/map_borders", 10, bind(&RoadmapServer::borders_callback, this, _1));
-      service_ = this->create_service<path_interface::srv::GenerateGraph>(
+        static const rmw_qos_profile_t rmw_qos_profile_custom =
+        {
+            RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+            100,
+            RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+            RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
+            RMW_QOS_DEADLINE_DEFAULT,
+            RMW_QOS_LIFESPAN_DEFAULT,
+            RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
+            RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
+            false
+        };
+        auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
+        subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
+            "/obstacles", qos, bind(&RoadmapServer::obstacles_callback, this, _1));
+        subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
+            "/map_borders", qos, bind(&RoadmapServer::borders_callback, this, _1));
+        subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
+            "/gates", qos, bind(&RoadmapServer::gates_callback, this, _1));
+        service_ = this->create_service<path_interface::srv::GenerateGraph>(
             "generate_graph", std::bind(&RoadmapServer::generateGraph, this, std::placeholders::_1, std::placeholders::_2));
     }
 
@@ -41,7 +59,21 @@ class RoadmapServer : public rclcpp::Node
     struct Point {
         float x, y;
         Point(float _x, float _y) : x(_x), y(_y) {}
+        bool operator==(const Point &other) const
+        { return (x == other.x
+                    && y == other.y);
+        }
     };
+
+    // struct PointHasher {
+    // std::size_t operator()(const Point& k) const {
+    //         using std::size_t;
+    //         using std::hash;
+
+    //         return ((hash<float>()(k.x)
+    //                 ^ (hash<float>()(k.y) << 1)) >> 1);
+    //     }
+    // };
 
     struct Edge {
         Point p1, p2;
@@ -54,27 +86,21 @@ class RoadmapServer : public rclcpp::Node
         vector<QuadNode> children;
         id_t id;
 
+        // QuadNode() = default;
         QuadNode(float _x, float _y, float _size, STATUS _status) : x(_x), y(_y), size(_size), status(_status) {}
+
+        bool operator!=(const QuadNode &other) const {
+            return (x != other.x || y != other.y);
+        }
     };
 
     vector<Edge> total_edges;
     vector<Point> wall_vertices;
     vector<vector<Point>> obstacle_vertices;
+    vector<Point> gates;
     unordered_map<id_t, GVertex> vertices;
-
-    // function<bool (const Edge& a, const Edge& b)> edgeCompare = [](const Edge& a, const Edge& b) {
-    //     float min_a = min(a.p1.x, a.p2.x);
-    //     float min_b = min(b.p1.x, b.p2.x);
-
-    //     if (min_a == min_b) {
-    //         float max_a_y = max(a.p1.y, a.p2.y);
-    //         float max_b_y = max(b.p1.y, b.p2.y);
-    //         return max_a_y > max_b_y;
-    //     }
-
-    //     return min_a < min_b;
-        
-    // };
+    // unordered_map<Point, QuadNode, PointHasher> point_map;
+    vector<QuadNode> quads;
 
     bool linesIntersect(Point& p1, Point& p2, Point& q1, Point& q2) {
         Point vp = {p2.x - p1.x, p2.y - p1.y};
@@ -196,43 +222,134 @@ class RoadmapServer : public rclcpp::Node
         return sqrt(pow(n1.x - n2.x, 2) + pow(n1.y - n2.y, 2));
     }
 
-    void buildGraph(QuadNode& node) {
+    vector<QuadNode> getNeighbors(QuadNode& node) {
+        vector<QuadNode> result;
+        for (QuadNode& n : quads) {
+            if (node != n) {
+                // north
+                if ((n.y + n.size) == node.y &&
+                    (n.x + n.size) > node.x &&
+                    n.x < (node.x + node.size)) {
+                        result.push_back(n);
+                        continue;
+                }
+
+                // east
+                if (n.x == (node.x + node.size) &&
+                    (n.y + n.size) > node.y &&
+                    n.y < (node.y + node.size)) {
+                        result.push_back(n);
+                        continue;
+                }
+
+                // south
+                if (n.y == (node.y + node.size) &&
+                    (n.x + n.size) > node.x &&
+                    n.x < (node.x + node.size)) {
+                        result.push_back(n);
+                        continue;
+                }
+
+                // west
+                if ((n.x + n.size) == node.x &&
+                    (n.y + n.size) > node.y &&
+                    n.y < (node.y + node.size)) {
+                        result.push_back(n);
+                        continue;
+                }
+
+
+            }
+        }
+
+        return result;
+    }
+
+    void buildVertices(QuadNode& node) {
+
         if (node.status == FREE) {
             GVertex v = {id, "", node.x + node.size / 2, node.y + node.size / 2, 0.0};
-            vertices[id] = v;
             node.id = id;
-            ++id;
+            vertices[id++] = v;
+            // Point p = {node.x, node.y};
+            // point_map[p] = node;
+            quads.push_back(node);
             return;
         }
          
         if (!node.children.empty()) {
             for (QuadNode& n : node.children) {
-                buildGraph(n);
+                buildVertices(n);
             }
+        }
+
+        // if (!node.children.empty()) {
+        //     for (size_t i = 0; i < node.children.size(); ++i) {
+        //         if (node.children[i].status != FREE) {
+        //             continue;
+        //         }
+
+        //         for (size_t j = 0; j < node.children.size(); ++j) {
+        //             if (node.children[j].status != FREE || i == j) {
+        //                 continue;
+        //             }
+
+        //             QuadNode node1 = node.children[i];
+        //             QuadNode node2 = node.children[j];
+
+        //             if (abs(node1.x - node2.x) <= node1.size &&
+        //                 abs(node1.y - node2.y) <= node1.size) {
+        //                     vertices[node1.id].addEdge(node2.id, euclidianDistance(node1, node2), "");
+        //                     vertices[node2.id].addEdge(node1.id, euclidianDistance(node1, node2), "");
+        //             }
+
+        //         }
+        //     }
+        // }
+    }
+
+    void buildEdges(QuadNode& node) {
+        if (node.status == FREE) {
+            // do neighbor search and edge construciton
+            vector<QuadNode> neighbors = getNeighbors(node);
+            for (QuadNode& neighbor : neighbors) {
+                vertices[node.id].addEdge(neighbor.id, euclidianDistance(node, neighbor), "");
+            }
+            return;
         }
 
         if (!node.children.empty()) {
-            for (size_t i = 0; i < node.children.size(); ++i) {
-                for (size_t j = i + 1; j < node.children.size(); ++j) {
-                    if (node.children[j].status != FREE) {
-                        continue;
-                    }
-
-                    QuadNode node1 = node.children[i];
-                    QuadNode node2 = node.children[j];
-
-                    if (abs(node1.x - node2.x) <= node1.size &&
-                        abs(node1.y - node2.y) <= node1.size) {
-                            vertices[node1.id].addEdge(node2.id, euclidianDistance(node1, node2), "");
-                            vertices[node2.id].addEdge(node1.id, euclidianDistance(node1, node2), "");
-                    }
-                }
+            for (QuadNode& n : node.children) {
+                buildEdges(n);
             }
         }
+    }
+
+    id_t getClosestVertex(Point& p) {
+        GVertex closest;
+        float closestDistance = INFINITY;
+        for (auto v = vertices.begin(); v != vertices.end(); ++v) {
+            if (closestDistance == INFINITY) { // TODO check that closest is free
+                closest = v->second;
+                closestDistance = sqrt(pow(p.x - (float)closest.getx(), 2) + pow(p.y - (float)closest.gety(), 2));
+                continue;
+            }
+
+            GVertex vert = v->second;
+            float dist = sqrt(pow(p.x - (float)vert.getx(), 2) + pow(p.y - (float)vert.gety(), 2));
+            if (closestDistance > dist) {
+                closest = vert;
+                closestDistance = dist;
+            }
+        }
+
+        return closest.getStateID();
     }
     
     void generateGraph(const std::shared_ptr<path_interface::srv::GenerateGraph::Request> request, 
         std::shared_ptr<path_interface::srv::GenerateGraph::Response>      response) {
+
+        // RCLCPP_INFO(this->get_logger(), "her");
 
         float min_x = INFINITY, max_x = -INFINITY, min_y = INFINITY, max_y = -INFINITY;
         for (const Edge& edge : total_edges) {
@@ -273,179 +390,41 @@ class RoadmapServer : public rclcpp::Node
 
         decompose(boundary);
 
-        buildGraph(boundary);
+        buildVertices(boundary);
+        buildEdges(boundary);
 
 
-
+        vector<path_interface::msg::GraphNode> nodes;
         for (auto v = vertices.begin(); v != vertices.end();) {
             if (v->second.getEdgeList().empty()) {
                 v = vertices.erase(v);
             } else {
+                path_interface::msg::GraphNode n;
+                n.id = v->first;
+                n.x = (float) v->second.getx();
+                n.y = (float) v->second.gety();
+
+                for (GEdge& e : v->second.getEdgeList()) {
+                    n.edges.push_back(e.getDestVID());
+                }
+
+                nodes.push_back(n);
+
                 ++v;
             }
         }
 
-        RCLCPP_INFO(this->get_logger(), "We have %zu vertices", vertices.size());   
+        RCLCPP_INFO(this->get_logger(), "We have %zu vertices", vertices.size());
+        // RCLCPP_INFO(this->get_logger(), "We have %zu points in the map", point_map.size());
 
-        //TODO add gate node and nodes for initial position of robots
-        // TODO make response
+        response->vertices = nodes;
 
-
-        
-        // sort(total_edges.begin(), total_edges.end(), edgeCompare);
+        Point gate = {gates[0].x, gates[0].y};
+        response->gate_id = getClosestVertex(gate);
+        Point start = {(float)request->x, (float)request->y};
+        response->start_id = getClosestVertex(start);
         
     }
-
-    // struct Event {
-    //     float x;
-    //     Edge edge;
-    //     bool isStart;
-    //     Event(float _x, Edge _edge, bool _isStart) : x(_x), edge(_edge), isStart(_isStart) {}
-    // };
-
-    // // Comparator for sorting events by x-coordinate (and y as tie-breaker)
-    // bool eventComparator(const Event& e1, const Event& e2) {
-    //     if (e1.x != e2.x) return e1.x < e2.x;
-    //     return e1.edge.p1.y < e2.edge.p1.y; // Tie-break by y-coordinate
-    // }
-
-    // // Comparator for ordering edges by their intersection with the sweep line
-    // struct EdgeComparator {
-    //     bool operator()(const Edge& e1, const Edge& e2) const {
-    //         if (e1.p1.y == e2.p1.y) return e1.p2.y < e2.p2.y;
-    //         return e1.p1.y < e2.p1.y;
-    //     }
-    // };
-
-
-    // vector<Edge> obstacle_vertices;
-
-    // // Find intersection of an edge with the sweep line at x
-    // float getYIntersection(const Edge& edge, float x) {
-    //     if (edge.p1.x == edge.p2.x) return edge.p1.y; // Vertical line
-    //     float slope = (edge.p2.y - edge.p1.y) / (edge.p2.x - edge.p1.x);
-    //     return edge.p1.y + slope * (x - edge.p1.x);
-    // }
-
-    // // Calculate the midpoint of two points
-    // Point midpoint(const Point& p1, const Point& p2) {
-    //     return Point((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
-    // }
-
-    // // Generate area segments and build the graph
-    // void generateGraph(const std::shared_ptr<path_interface::srv::GenerateGraph::Request> request,
-    //       std::shared_ptr<path_interface::srv::GenerateGraph::Response>      response) {
-    //     vector<Event> events;
-
-    //     // Create events for all edges
-    //     for (const auto& edge : obstacle_vertices) {
-    //         events.emplace_back(edge.p1.x, edge, true);  // Start event
-    //         events.emplace_back(edge.p2.x, edge, false); // End event
-    //     }
-
-    //     // Sort events by x-coordinate
-    //     sort(events.begin(), events.end(), [this](const Event& a, const Event& b) {
-    //                   return eventComparator(a, b);
-    //               });
-
-    //     // Active edge set
-    //     set<Edge, EdgeComparator> activeEdges;
-
-    //     // Resultant graph vertices and edges
-    //     vector<Point> vertices; // All vertices
-    //     vector<pair<Point, Point>> edgesGraph; // Edges of the graph
-
-    //     vector<Vertex> vertices_astar;
-    //     id_t id = 0;
-
-    //     float lastX = -1; // Track the previous x-position of the sweep line
-    //     vector<Point> lastCenters; // Centers of areas at the last step
-
-    //     for (const auto& event : events) {
-    //         float currentX = event.x;
-
-    //         // Process active edges and generate area segments at the midpoint
-    //         vector<Point> centers;
-
-    //         if (!activeEdges.empty() && lastX != -1) {
-    //             auto it = activeEdges.begin();
-    //             while (next(it) != activeEdges.end()) {
-    //                 auto currentEdge = *it;
-    //                 auto nextEdge = *next(it);
-
-    //                 // Compute center of the area between two edges
-    //                 float y1 = getYIntersection(currentEdge, currentX);
-    //                 float y2 = getYIntersection(nextEdge, currentX);
-    //                 float centerX = (lastX + currentX) / 2;
-    //                 float centerY = (y1 + y2) / 2;
-
-    //                 centers.push_back(Point(centerX, centerY));
-    //                 ++it;
-    //             }
-    //         }
-
-    //         // Add connections between current centers and previous centers
-    //         for (size_t i = 0; i < centers.size(); ++i) {
-    //             vertices.push_back(centers[i]);
-    //             Vertex v = {id, "", centers[i].x, centers[i].y, 0.0};
-    //             vertices_astar.push_back(v);
-    //             id++;
-
-
-    //             // Connect area centers
-    //             if (i > 0) {
-    //                 edgesGraph.emplace_back(centers[i - 1], centers[i]);
-    //             }
-
-    //             // Connect to previous centers
-    //             if (!lastCenters.empty() && i < lastCenters.size()) {
-    //                 Point edgeCenter = midpoint(centers[i], lastCenters[i]);
-    //                 vertices.push_back(edgeCenter);
-
-    //                 Vertex v = {id, "", edgeCenter.x, edgeCenter.y, 0.0};
-    //                 vertices_astar.push_back(v);
-    //                 id++;
-
-    //                 edgesGraph.emplace_back(centers[i], edgeCenter);
-    //                 edgesGraph.emplace_back(lastCenters[i], edgeCenter);
-    //             }
-    //         }
-
-    //         // Update active edges
-    //         if (event.isStart) {
-    //             activeEdges.insert(event.edge);
-    //         } else {
-    //             activeEdges.erase(event.edge);
-    //         }
-
-    //         // Update last state
-    //         lastCenters = centers;
-    //         lastX = currentX;
-    //     }
-
-    //     path_interface::msg::Graph graph;
-    //     vector<path_interface::msg::GraphEdge> edges;
-    //     for (auto const &edge : edgesGraph) {
-    //       path_interface::msg::GraphEdge e;
-    //       path_interface::msg::GraphNode n1;
-    //       path_interface::msg::GraphNode n2;
-    //       n1.x = edge.first.x; n1.y = edge.first.y;
-    //       n2.x = edge.second.x; n2.y = edge.second.y;
-
-    //       e.start = n1;
-    //       e.end = n2;
-
-    //       edges.push_back(e);
-    //       RCLCPP_INFO(this->get_logger(), "Next edge: ('%f', '%f'), ('%f', '%f')", n1.x, n1.y, n2.x, n2.y);
-    //     }
-    //     RCLCPP_INFO(this->get_logger(), "I AM HERE");
-    //     graph.edges = edges;
-    //     graph.vertices = vertices;
-    //     response->graph = graph;
-    //     RCLCPP_INFO(this->get_logger(), "%zu", graph.edges.size());
-    // }
-
-
 
     void obstacles_callback(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
     {
@@ -476,8 +455,17 @@ class RoadmapServer : public rclcpp::Node
             
       
     }
+
+    void gates_callback(const geometry_msgs::msg::PoseArray msg) {
+        vector<geometry_msgs::msg::Pose> poses = msg.poses;
+        for (geometry_msgs::msg::Pose& p : poses) {
+            RCLCPP_INFO(this->get_logger(), "I heard a gate vertex: '%f', '%f", p.position.x, p.position.y);
+            gates.push_back(Point(p.position.x, p.position.y));
+        }
+    }
     rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
     rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription_borders_;
+    rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subscription_gates_;
     rclcpp::Service<path_interface::srv::GenerateGraph>::SharedPtr service_;
 
 

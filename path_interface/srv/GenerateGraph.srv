@@ -1,4 +1,6 @@
 float64 x
 float64 y
 ---
-path_interface/Graph graph
+path_interface/GraphNode[] vertices
+int32 gate_id
+int32 start_id
