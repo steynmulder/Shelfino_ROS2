@@ -405,9 +405,12 @@ class RoadmapServer : public rclcpp::Node
                 n.y = (float) v->second.gety();
 
                 for (GEdge& e : v->second.getEdgeList()) {
+
                     n.edges.push_back(e.getDestVID());
                 }
 
+                RCLCPP_INFO(this->get_logger(), "We have %u, %f, %f, with %zu vertices", n.id, n.x, n.y, n.edges.size());
+                
                 nodes.push_back(n);
 
                 ++v;

@@ -34,7 +34,7 @@
     
 /**:
   ros__parameters:
-    map: hexagon              # Maps can be "hexagon" or "rectangle"
+    map: rectangle              # Maps can be "hexagon" or "rectangle"
     dx: 20.0                    # The width of the rectangle or the length of the hexagon's edges. Default edge used in hexagon.world is 12.0
     dy: 20.0                    # The height of the rectangle. Not used in hexagon maps
     max_timeout: 3              # Maximum time to spawn the map. NOT MAINTAINED

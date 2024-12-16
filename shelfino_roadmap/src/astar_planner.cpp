@@ -3,38 +3,66 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "Astar.h"
 
 class AStarPlanner : public rclcpp::Node {
 	public:
 		AStarPlanner() : Node("astar_planner") {
+			static const rmw_qos_profile_t rmw_qos_profile_custom =
+			{
+				RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+				100,
+				RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+				RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
+				RMW_QOS_DEADLINE_DEFAULT,
+				RMW_QOS_LIFESPAN_DEFAULT,
+				RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
+				RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
+				false
+			};
+			auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
+			subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+				"/shelfino1/amcl_pose", qos, bind(&AStarPlanner::position_callback, this, std::placeholders::_1));
+
 			client_ = this->create_client<path_interface::srv::GenerateGraph>("generate_graph");
 		}
 
+		
         // for graph construction
 		std::map<id_t, GVertex> vertices;
 
 
         void getGraph(float x, float y) {
+			RCLCPP_INFO(this->get_logger(), "I AM HERE2!!!");
+
 			if (!client_->wait_for_service(std::chrono::seconds(5))) {
 				RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
 				return;
 			}
 
+			RCLCPP_INFO(this->get_logger(), "I AM HERE3!!!");
 
 			auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
 			request->x = x;
 			request->y = y;
 
-			const auto future = client_->async_send_request(request, std::bind(&AStarPlanner::generate_graph_response_callback, this, std::placeholders::_1));
-            rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
-
+			auto future = client_->async_send_request(request, std::bind(&AStarPlanner::generate_graph_response_callback, this, std::placeholders::_1));
+            // rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
 
 			try {
+				RCLCPP_INFO(this->get_logger(), "I AM HERE4!!!");
+
+				RCLCPP_INFO(this->get_logger(), "WHAT IS HAPPENING??? %zu", this->graph_response_->vertices.size()); 
+
+
 				auto graph_vertices = this->graph_response_->vertices;
 				std::map<id_t, std::vector<id_t>> graph_edges;
+				RCLCPP_INFO(this->get_logger(), "I AM HERE5!!!");
 				for (auto vertex : graph_vertices) {
+					RCLCPP_INFO(this->get_logger(), "%f", vertex.x);
+
 					GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
 					for (auto edge : vertex.edges) {
 						graph_edges[vertex.id].push_back(edge);
@@ -75,9 +103,15 @@ class AStarPlanner : public rclcpp::Node {
             this->graph_response_ = future.get();
         }
 
+		void position_callback(const geometry_msgs::msg::PoseWithCovarianceStamped msg) {
+			RCLCPP_INFO(this->get_logger(), "I AM HERE!!!");
+			getGraph(msg.pose.pose.position.x, msg.pose.pose.position.y);
+		}
+
         
 
     private:
+		rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
         rclcpp::Client<path_interface::srv::GenerateGraph>::SharedPtr client_;
         path_interface::srv::GenerateGraph::Response::SharedPtr graph_response_;
 
@@ -88,7 +122,7 @@ int main(int argc, char* argv[]) {
 
     auto node = std::make_shared<AStarPlanner>();
 
-    node->getGraph(1, 2);
+    // node->getGraph(1, 2);
 
     rclcpp::spin(node);
     rclcpp::shutdown();
