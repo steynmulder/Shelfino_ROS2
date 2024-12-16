@@ -69,9 +69,13 @@ private:
   bool gate_pose_ready = false;
 
   Pose shelfino_pose;
+  Path global_path
+  bool global_path_received = false;
+
+  double Kmax_ = 1.0;
 
   rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr shelfino_pose_sub_;
-
+  rclcpp::Subscription<Path>::SharedPtr dubins_path_sub_;
   rclcpp::Subscription<PoseArray>::SharedPtr gates_pose_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shelfino_ready_pub_;
   rclcpp::Service<Empty>::SharedPtr start_service_;
@@ -85,6 +89,8 @@ public:
 
 private:
   void handle_shelfino_pose(const PoseWithCovarianceStamped::SharedPtr msg);
+
+  void handle_dubins_path(const Path::SharedPtr msg);  
 
   void handle_gate_pose(const PoseArray::SharedPtr msg);
 
