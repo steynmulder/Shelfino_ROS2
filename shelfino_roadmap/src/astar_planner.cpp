@@ -3,7 +3,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
-#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+// #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "Astar.h"
 
@@ -37,14 +37,11 @@ class AStarPlanner : public rclcpp::Node {
 
 
         void getGraph() {
-			RCLCPP_INFO(this->get_logger(), "I AM HERE2!!!");
 
 			if (!client_->wait_for_service(std::chrono::seconds(5))) {
 				RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
 				return;
 			}
-
-			RCLCPP_INFO(this->get_logger(), "I AM HERE3!!!");
 
 			auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
 			// request->x = x;
@@ -54,16 +51,9 @@ class AStarPlanner : public rclcpp::Node {
             rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
 
 			try {
-				RCLCPP_INFO(this->get_logger(), "I AM HERE4!!!");
-
-				RCLCPP_INFO(this->get_logger(), "WHAT IS HAPPENING??? %zu", this->graph_response_->vertices.size()); 
-
-
 				auto graph_vertices = this->graph_response_->vertices;
 				std::map<id_t, std::vector<id_t>> graph_edges;
-				RCLCPP_INFO(this->get_logger(), "I AM HERE5!!!");
 				for (auto vertex : graph_vertices) {
-					RCLCPP_INFO(this->get_logger(), "%f", vertex.x);
 
 					GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
 					for (auto edge : vertex.edges) {

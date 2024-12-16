@@ -27,13 +27,13 @@ std::vector<id_t> Astar::findPath(const id_t start_id, const id_t end_id, std::m
 			if (closedSet.find(*Vnext) != closedSet.end()) continue;
 			
 			// Compute Dubins path cost instead of straight-line edge cost
-            double dubinsCost = dubinsShortestPath(
-                Vcurrent->getx(), Vcurrent->gety(), Vcurrent->getOrientation(),  // Current vertex
-                Vnext->getx(), Vnext->gety(), Vnext->getOrientation(),          // Next vertex
-                1.0).L;                            // Turning radius TODO GET RADIUS
+            // double dubinsCost = dubinsShortestPath(
+            //     Vcurrent->getx(), Vcurrent->gety(), Vcurrent->getOrientation(),  // Current vertex
+            //     Vnext->getx(), Vnext->gety(), Vnext->getOrientation(),          // Next vertex
+            //     1.0).L;                            // Turning radius TODO GET RADIUS
 
             // Total cost calculation
-            auto g = Vcurrent->getg() + dubinsCost;
+            auto g = Vcurrent->getg(); // + dubinsCost;
             auto f = g + heuristic_distance_estimator(*Vnext, graph[end_id]);
 
 			if (openSet.count(Vnext)==0){   //If openSet does not contain Vnext

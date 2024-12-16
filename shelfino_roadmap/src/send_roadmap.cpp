@@ -74,7 +74,7 @@ class RoadmapServer : public rclcpp::Node
 
             robot_position_subscribers_.emplace_back(
                 this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-                    topic_name, 10, callback));
+                    topic_name, qos, callback));
         }
     }
 
@@ -82,7 +82,7 @@ class RoadmapServer : public rclcpp::Node
 
     typedef enum {FREE, OCCUPIED, MIXED, OUTSIDE} STATUS;
 
-    const float min_length = 0.1;
+    const float min_length = 1.0;
 
     id_t id = 0;
 
@@ -387,19 +387,22 @@ class RoadmapServer : public rclcpp::Node
     id_t getClosestVertex(Point& p) {
         GVertex closest;
         float closestDistance = INFINITY;
-        for (auto v = vertices.begin(); v != vertices.end(); ++v) {
-            if (closestDistance == INFINITY) { // TODO check that closest is free
-                closest = v->second;
-                closestDistance = sqrt(pow(p.x - (float)closest.getx(), 2) + pow(p.y - (float)closest.gety(), 2));
-                continue;
-            }
+        for (QuadNode node : quads) {
+            if (node.status == FREE) {
+                if (closestDistance == INFINITY) {
+                    closest = vertices[node.id];
+                    closestDistance = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                    continue;
+                }
 
-            GVertex vert = v->second;
-            float dist = sqrt(pow(p.x - (float)vert.getx(), 2) + pow(p.y - (float)vert.gety(), 2));
-            if (closestDistance > dist) {
-                closest = vert;
-                closestDistance = dist;
+                GVertex vert = vertices[node.id];
+                float dist = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                if (closestDistance > dist) {
+                    closest = vert;
+                    closestDistance = dist;
+                }
             }
+            
         }
 
         return closest.getStateID();
