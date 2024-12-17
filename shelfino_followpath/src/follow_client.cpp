@@ -139,67 +139,88 @@ void follow_client::start_callback(const std::shared_ptr<Empty::Request> request
   RCLCPP_INFO(this->get_logger(), "Navigating to x=%f, y=%f, yaw=%f", this->gate_pose.position.x, this->gate_pose.position.y, get_yaw_from_q(this->gate_pose.orientation));
 
   // generate dubins path
-  if(!this->global_paths_.empty()){
-    const auto &poses = this->global_paths_.poses;       //  geometry_msgs/PoseStamped.msg: geometry_msgs/Pose poseall 
-    if (poses.size()<2){
-      RCLCPP_INFO(this-get_logger(),"Global Path has less than 2 points");
+  for (size_t robot_idx = 0; robot_idx < global_paths_.size();++robot_idx){
+    const auto &robot_name = robot_names[robot_idx]
+    const auto &global_path = global_paths_[robot_idx];
+    if(!global_path.empty()){
+      const auto &poses = this->global_path.poses;       
+      if (poses.size()<2){
+        RCLCPP_INFO(this-get_logger(),"Global Path has less than 2 points");
+      }
+
+      Path dubins_path;
+      dubins_path.header = global_path.header;
+
+      // iterate all points in the global path
+      for (size_t i = 0; i < poses.size() -1; ++i){
+        const auto &start_pose = poses[i].pose;
+        const auto &goal_pose  = pose[i+1].pose;
+
+        double x0 = start_pose.position.x;
+        double y0 = start_pose.position.y;
+        double th0 = get_yaw_from_q(start_pose.orientation);
+
+        double xf = start_pose.position.x;
+        double yf = start_pose.position.y;
+        double thf = get_yaw_from_q(start_pose.orientation);    
+
+        // call dubinShortestPath function in dubins.cpp
+        DubinsCurve curve = Dubins::dubinsShortestPath(x0,y0,th0,xf,yf,thf,Kmax_);
+
+        // Discrete dubins curve into path points
+        constexpr int num_samples = 50;                  // sample numbers
+        for (int j = 0; j< num_samples; ++j){
+          double s = curve.L * j/ num_samples;
+          double x, y, th;
+          if (s <= curve.a1.L){
+            std::tie(x,y,th) = computerArcPOint(s,curve.a1);
+          }
+          else if( s <= curve.a1.L + curve.a2.L){
+            std::tie(x,y,th) = computerArcPOint(s - curve.a1.L,curve.a2);
+          }
+          else{
+            std::tie(x,y,th) = computerArcPOint(s - curve.a1.L,curve.a3);        
+          }
+
+          // Add points into path
+          geometry_msgs::msg:PoseStamped pose_stamped;
+          pose_stamped.header = global_path.header;
+          pose_stamped.pose.position.x = x;
+          pose_stamped.pose.position.y = y;
+          pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,sin(th/2),cos(th/2)));
+          dubins_path.poses.push_back(pose_stamped);
+        } // END: discretion of one arc dubins path
+          
+      }// END: iteration global path
+
+      //call move function to activate the action server: follow path
+      this->move(robot_name->robot_name,dubins_path->path);
+
     }
 
-   // iterate all points in the global path
-   for (size_t i = 0; i < poses.size() -1; ++i){
-    const auto &start_pose = poses[i].pose;
-    const auto &goal_pose  = pose[i+1].pose;
-
-    double x0 = start_pose.position.x;
-    double y0 = start_pose.position.y;
-    double th0 = get_yaw_from_q(start_pose.orientation);
-
-    double xf = start_pose.position.x;
-    double yf = start_pose.position.y;
-    double thf = get_yaw_from_q(start_pose.orientation);    
-
-    // call dubinShortestPath function in dubins.cpp
-    DubinsCurve curve = Dubins::dubinsShortestPath(x0,y0,th0,xf,yf,thf,Kmax_);
-
-    // Discrete dubins curve into path points
-    constexpr int num_samples = 50;                  // sample numbers
-    for (int j = 0; j< num_samples; ++j){
-      double s = curve.L * j/ num_samples;
-      double x, y, th;
-      if (s <= curve.a1.L){
-        std::tie(x,y,th) = computerArcPOint(s,curve.a1);
-      }
-      else if( s <= curve.a1.L + curve.a2.L){
-        std::tie(x,y,th) = computerArcPOint(s - curve.a1.L,curve.a2);
-      }
-      else{
-        std::tie(x,y,th) = computerArcPOint(s - curve.a1.L,curve.a3);        
-      }
-
-      // Add points into path
-      geometry_msgs::msg:PoseStamped pose_stamped;
-      pose_stamped.header = global_path.header;
-      pose_stamped.pose.position.x = x;
-      pose_stamped.pose.position.y = y;
-      pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,sin(th/2),cos(th/2)));
-      dubins_path.poses.push_back(pose_stamped);
-    } // END: discretion of one arc dubins path
-       
-   }// END: iteration global path
-
-   //call move function to activate the action server: follow path
-   this->move(dubins_path->path);
-
+  
   }
+
 }
 
-void follow_client::move(const Path& path)
+void follow_client::move(const std::string &robot_name,const Path& path)
 {
-  RCLCPP_INFO(this->get_logger(), "Moving to gate");
-  if(!this->follow_path_client_->wait_for_action_server(std::chrono::seconds(10))){
-    RCLCPP_ERROR(this->get_logger(), "Action server for FollowPath not available after waiting.");
-    exit(1);
+  // find if there already exists a shelfino#/followpath action server
+  // if not create one 
+  if(follow_path_clients_array.find(robot_name) == follow_path_clients_array.end()){
+    follow_path_clients_array[robot_name] = rclcpp_action::create_client<FollowPath>(
+      this, "/"+ robot_name + "/follow_path")
   }
+
+  auto client = follow_path_clients_array[robot_name];
+
+  RCLCPP_INFO(client->get_logger(), "Moving to gate");
+  if(!client->wait_for_action_server(std::chrono::seconds(10))){
+    RCLCPP_ERROR(this->get_logger(), "Action server for %s not available after waiting.",robot_name.c_str());
+    exit(1);
+  }  
+
+
 
   auto action_msg = FollowPath::Goal();
   action_msg.path = path;
@@ -207,49 +228,78 @@ void follow_client::move(const Path& path)
   RCLCPP_INFO(this->get_logger(), "Sending goal to FollowPath action server.");
 
   auto send_goal_options = rclcpp_action::Client<FollowPath>::SendGoalOptions();
-  send_goal_options.goal_response_callback = std::bind(&follow_client::goal_response_path_following_callback, this, std::placeholders::_1);
-  send_goal_options.feedback_callback = std::bind(&follow_client::feedback_path_following_callback, this, std::placeholders::_1, std::placeholders::_2);
-  send_goal_options.result_callback = std::bind(&follow_client::result_path_following_callback, this, std::placeholders::_1);
+  send_goal_options.goal_response_callback = [this, robot_name](const auto &goal_handle){
+    if(!goal_handle){
+      RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
+      exit(1);   
+    }
+    RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
 
-  this->follow_path_client_->async_send_goal(action_msg, send_goal_options);       // send msgs to action server: followpath 
+  };
+
+
+  send_goal_options.feedback_callback = [this, robot_name](auto, const auto &feedback){
+    RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
+  };
+
+
+  send_goal_options.result_callback = [this, robot_name](const auto &result){
+    switch (result.code){
+      case rclcpp_action::ResultCode::SUCCEEDED:
+        RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
+        break;
+      case rclcpp_action::ResultCode::ABORTED:
+        RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
+        break;
+      case rclcpp_action::ResultCode::CANCELED:
+        RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
+        break;
+      default:
+        RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
+        exit(1);
+        break;
+    }
+  };
+
+  client->async_send_goal(action_msg, send_goal_options);       // send msgs to action server: followpath 
 }
 
-void follow_client::goal_response_path_following_callback(
-  const ClientFollowPathGoalHandle::SharedPtr & goal_handle)
-{
-  if (!goal_handle){
-    RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
-    exit(1);
-  }
-  RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
-}
+// void follow_client::goal_response_path_following_callback(
+//   const ClientFollowPathGoalHandle::SharedPtr & goal_handle)
+// {
+//   if (!goal_handle){
+//     RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
+//     exit(1);
+//   }
+//   RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
+// }
 
-void follow_client::feedback_path_following_callback(
-  ClientFollowPathGoalHandle::SharedPtr,
-  const std::shared_ptr<const FollowPath::Feedback> feedback)
-{
-  RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
-}
+// void follow_client::feedback_path_following_callback(
+//   ClientFollowPathGoalHandle::SharedPtr,
+//   const std::shared_ptr<const FollowPath::Feedback> feedback)
+// {
+//   RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
+// }
 
-void follow_client::result_path_following_callback(
-  const ClientFollowPathGoalHandle::WrappedResult & result)
-{
-  switch (result.code){
-    case rclcpp_action::ResultCode::SUCCEEDED:
-      RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
-      break;
-    case rclcpp_action::ResultCode::ABORTED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
-      break;
-    case rclcpp_action::ResultCode::CANCELED:
-      RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
-      break;
-    default:
-      RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
-      exit(1);
-      break;
-  }
-}
+// void follow_client::result_path_following_callback(
+//   const ClientFollowPathGoalHandle::WrappedResult & result)
+// {
+//   switch (result.code){
+//     case rclcpp_action::ResultCode::SUCCEEDED:
+//       RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
+//       break;
+//     case rclcpp_action::ResultCode::ABORTED:
+//       RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
+//       break;
+//     case rclcpp_action::ResultCode::CANCELED:
+//       RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
+//       break;
+//     default:
+//       RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
+//       exit(1);
+//       break;
+//   }
+// }
 
 
 int main(int argc, char * argv[])

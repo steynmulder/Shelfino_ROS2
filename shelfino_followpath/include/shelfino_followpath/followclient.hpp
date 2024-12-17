@@ -9,6 +9,7 @@
 #include <set>
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -85,8 +86,8 @@ private:
   bool global_path_received = false;
 
   double Kmax_ = 1.0;
-
-
+  
+  std::unordered_map<std::string, rclcpp_action::Client<FollowPath>::sharedPtr> follow_path_clients_array;
   rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
   rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
   std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr robot_position_subscribers_;
@@ -103,6 +104,7 @@ public:
   follow_client(); 
 
 private:
+
   void position_callback(const PoseWithCovarianceStamped::SharedPtr msg);
 
   void global_path_callback(const Path::SharedPtr msg);  
@@ -121,7 +123,7 @@ private:
   void result_path_planning_callback(
     const ClientComputePathToPoseGoalHandle::WrappedResult & result);
 
-  void move(const Path& path);
+  void move(const std::string &robot_name, const Path& path);
 
   void goal_response_path_following_callback(
     const ClientFollowPathGoalHandle::SharedPtr & goal_handle);
