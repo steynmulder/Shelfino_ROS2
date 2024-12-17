@@ -4,6 +4,11 @@
 #include <functional>
 #include <memory>
 #include <cstdlib>
+#include <iostream>
+#include <vector>
+#include <set>
+#include <algorithm>
+#include <cmath>
 
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
@@ -16,8 +21,12 @@
 
 #include "nav_msgs/msg/path.hpp"
 
+#include "geometry_msgs/msg/pose.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "geometry_msgs/msg/polygon.hpp"
+#include "obstacles_msgs/msg/obstacle_array_msg.hpp"
+#include "obstacles_msgs/msg/obstacle_msg.hpp"
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -33,6 +42,8 @@ using FollowPath = nav2_msgs::action::FollowPath;
 using Path = nav_msgs::msg::Path;
 using ClientComputePathToPoseGoalHandle = rclcpp_action::ClientGoalHandle<ComputePathToPose>;
 using ClientFollowPathGoalHandle = rclcpp_action::ClientGoalHandle<FollowPath>;
+using ObstacleArrayMsg = obstacles_msgs::msg::ObstacleArrayMsg;
+using Polygon = geometry_msgs::msg::Polygon;
 
 static const rmw_qos_profile_t rmw_qos_profile_custom =
 {
@@ -69,12 +80,16 @@ private:
   bool gate_pose_ready = false;
 
   Pose shelfino_pose;
-  Path global_path
+  std::vector<PoseWithCovarianceStamped> robot_poses_;
+  std::vector<Path> global_paths_;
   bool global_path_received = false;
 
   double Kmax_ = 1.0;
 
-  rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr shelfino_pose_sub_;
+
+  rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
+  rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
+  std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr robot_position_subscribers_;
   rclcpp::Subscription<Path>::SharedPtr dubins_path_sub_;
   rclcpp::Subscription<PoseArray>::SharedPtr gates_pose_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shelfino_ready_pub_;
@@ -88,9 +103,9 @@ public:
   follow_client(); 
 
 private:
-  void handle_shelfino_pose(const PoseWithCovarianceStamped::SharedPtr msg);
+  void position_callback(const PoseWithCovarianceStamped::SharedPtr msg);
 
-  void handle_dubins_path(const Path::SharedPtr msg);  
+  void global_path_callback(const Path::SharedPtr msg);  
 
   void handle_gate_pose(const PoseArray::SharedPtr msg);
 
