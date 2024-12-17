@@ -2,7 +2,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-#include "path_interface/srv/generate_graph.hpp"
+// #include "path_interface/srv/generate_graph.hpp"
 // #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "RRTstar.h"
@@ -38,77 +38,80 @@ class RRTStarPlanner : public rclcpp::Node {
 
         void getGraph() {
 
-			if (!client_->wait_for_service(std::chrono::seconds(5))) {
-				RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
-				return;
-			}
+			// if (!client_->wait_for_service(std::chrono::seconds(5))) {
+			// 	RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
+			// 	return;
+			// }
 
-			auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
-			// request->x = x;
-			// request->y = y;
+			// auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
+			// // request->x = x;
+			// // request->y = y;
 
-			auto future = client_->async_send_request(request, std::bind(&RRTStarPlanner::generate_graph_response_callback, this, std::placeholders::_1));
-            rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
+			// auto future = client_->async_send_request(request, std::bind(&RRTStarPlanner::generate_graph_response_callback, this, std::placeholders::_1));
+            // rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
 
-			try {
-				auto graph_vertices = this->graph_response_->vertices;
-				std::map<id_t, std::vector<id_t>> graph_edges;
-				for (auto vertex : graph_vertices) {
+			// try {
+			// 	auto graph_vertices = this->graph_response_->vertices;
+			// 	std::map<id_t, std::vector<id_t>> graph_edges;
+			// 	for (auto vertex : graph_vertices) {
 
-					GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
-					for (auto edge : vertex.edges) {
-						graph_edges[vertex.id].push_back(edge);
-					}
-					vertices[vertex.id] = v;
-				}
+			// 		GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
+			// 		for (auto edge : vertex.edges) {
+			// 			graph_edges[vertex.id].push_back(edge);
+			// 		}
+			// 		vertices[vertex.id] = v;
+			// 	}
 
-				RCLCPP_INFO(this->get_logger(), "Start: %u", this->graph_response_->start_ids[0]);
-				RCLCPP_INFO(this->get_logger(), "End: %u", this->graph_response_->gate_id);
+			// 	RCLCPP_INFO(this->get_logger(), "Start: %u", this->graph_response_->start_ids[0]);
+			// 	RCLCPP_INFO(this->get_logger(), "End: %u", this->graph_response_->gate_id);
 
 
-				for (auto it = vertices.begin(); it != vertices.end(); ++it) {
-					for (id_t edge_id : graph_edges[it->first]) {
-						RCLCPP_INFO(this->get_logger(), "Edge: (%u, %u)", it->first, edge_id);
+			// 	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+			// 		for (id_t edge_id : graph_edges[it->first]) {
+			// 			RCLCPP_INFO(this->get_logger(), "Edge: (%u, %u)", it->first, edge_id);
 
-						float dist = sqrt(pow(it->second.getx() - vertices[edge_id].getx(), 2) + pow(it->second.gety() - vertices[edge_id].gety(), 2));
-						it->second.addEdge(edge_id, dist, "");
-					}
+			// 			float dist = sqrt(pow(it->second.getx() - vertices[edge_id].getx(), 2) + pow(it->second.gety() - vertices[edge_id].gety(), 2));
+			// 			it->second.addEdge(edge_id, dist, "");
+			// 		}
 					
-				}
+			// 	}
 
-				RCLCPP_INFO(this->get_logger(), "#vertices: %zu", vertices.size());
+			// 	RCLCPP_INFO(this->get_logger(), "#vertices: %zu", vertices.size());
 
-				RRTstar rrtstar;
+			// 	RRTstar rrtstar;
 
-				std::vector<id_t> start_ids;
+			// 	std::vector<id_t> start_ids;
 
-				// for (auto id : this->graph_response_->start_ids) {
-				for (size_t i = 0; i < this->graph_response_->start_ids.size(); ++i) {
+			// 	// for (auto id : this->graph_response_->start_ids) {
+			// 	for (size_t i = 0; i < this->graph_response_->start_ids.size(); ++i) {
 
-					RCLCPP_INFO(this->get_logger(), "ID: %u", this->graph_response_->start_ids[i]);
-					RCLCPP_INFO(this->get_logger(), "NAME: %s", this->graph_response_->names[i].c_str());
+			// 		RCLCPP_INFO(this->get_logger(), "ID: %u", this->graph_response_->start_ids[i]);
+			// 		RCLCPP_INFO(this->get_logger(), "NAME: %s", this->graph_response_->names[i].c_str());
 
-					start_ids.push_back(this->graph_response_->start_ids[i]);
-				}
-				RCLCPP_INFO(this->get_logger(), "%zu", this->graph_response_->names.size());
+			// 		start_ids.push_back(this->graph_response_->start_ids[i]);
+			// 	}
+			// 	RCLCPP_INFO(this->get_logger(), "%zu", this->graph_response_->names.size());
 
-				// 
-				std::map<std::string, std::vector<id_t>> paths = rrtstar.findPath(x0,y0,th0,xf,yf,thf);
-				RCLCPP_INFO(this->get_logger(), "here2");
+			// 	// 
+			// 	std::map<std::string, std::vector<id_t>> paths = rrtstar.findPath(x0,y0,th0,xf,yf,thf);
+			// 	RCLCPP_INFO(this->get_logger(), "here2");
 
-				for (auto it = paths.begin(); it != paths.end(); ++it) {
-					RCLCPP_INFO(this->get_logger(), "%s", it->first.c_str());
-					for (auto id : it->second) {
-						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
-					}
-					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
-				}
+			// 	for (auto it = paths.begin(); it != paths.end(); ++it) {
+			// 		RCLCPP_INFO(this->get_logger(), "%s", it->first.c_str());
+			// 		for (auto id : it->second) {
+			// 			RCLCPP_INFO(this->get_logger(), "path id: %d", id);
+			// 		}
+			// 		RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
+			// 	}
 
-				complete = true;
+			// 	complete = true;
 				
-			} catch (const std::exception &e) {
-            	RCLCPP_ERROR(this->get_logger(), "Service call for generate_graph failed: %s", e.what());
-        	}
+			// } catch (const std::exception &e) {
+            // 	RCLCPP_ERROR(this->get_logger(), "Service call for generate_graph failed: %s", e.what());
+        	// }
+
+			RRTstar rrtstar;
+
 		}
 
         void generate_graph_response_callback(rclcpp::Client<path_interface::srv::GenerateGraph>::SharedFuture future) {

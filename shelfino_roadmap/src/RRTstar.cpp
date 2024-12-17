@@ -104,7 +104,7 @@ std::vector<Node*> RRTstar::nearNodes(const std::vector<Node*>& tree, double x, 
 }
 
 bool RRTstar::isCollisionFree(double x1, double y1, double x2, double y2) {
-    // Stub for collision checking (to be implemented based on graph or environment)
+    // TODO check for collision
     return true;
 }
 

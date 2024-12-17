@@ -3,6 +3,8 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
+#include "nav_msgs/msg/path.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 // #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "Astar.h"
@@ -95,13 +97,24 @@ class AStarPlanner : public rclcpp::Node {
 				std::map<std::string, std::vector<id_t>> paths = astar.generatePaths(start_ids, this->graph_response_->names, this->graph_response_->gate_id, vertices);
 				RCLCPP_INFO(this->get_logger(), "here2");
 
+				path_interface::msg::PathArray path_array;
+
 				for (auto it = paths.begin(); it != paths.end(); ++it) {
+					nav_msgs::msg::Path path_msg;
 					RCLCPP_INFO(this->get_logger(), "%s", it->first.c_str());
 					for (auto id : it->second) {
+						geometry_msgs::msg::PoseStamped pose;
+						GVertex v = vertices[id];
+						pose.pose.position.x = v.getx();
+						pose.pose.position.y = v.gety();
+						path_msg.poses.push_back(pose);
 						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
 					}
 					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
+					path_array.paths.push_back(path_msg);
 				}
+
+				// TODO call follow_path client with path_array
 
 				complete = true;
 				

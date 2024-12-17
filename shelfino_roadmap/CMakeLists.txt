@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(obstacles_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(path_interface REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 
 include_directories(include/shelfino_roadmap)
@@ -18,7 +19,7 @@ include_directories(include/shelfino_roadmap)
 add_executable(send_roadmap src/send_roadmap.cpp src/GEdge.cpp src/GVertex.cpp src/Dubins.cpp)
 ament_target_dependencies(send_roadmap rclcpp obstacles_msgs geometry_msgs path_interface)
 add_executable(astar_planner src/astar_planner.cpp src/GEdge.cpp src/GVertex.cpp src/Astar.cpp src/Dubins.cpp)
-ament_target_dependencies(astar_planner rclcpp obstacles_msgs geometry_msgs path_interface)
+ament_target_dependencies(astar_planner rclcpp obstacles_msgs geometry_msgs path_interface nav_msgs)
 
 # target_include_directories(astar PUBLIC
 #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
