@@ -62,9 +62,13 @@ class AStarPlanner : public rclcpp::Node {
 					vertices[vertex.id] = v;
 				}
 
+				RCLCPP_INFO(this->get_logger(), "Start: %u", this->graph_response_->start_ids[0]);
+				RCLCPP_INFO(this->get_logger(), "End: %u", this->graph_response_->gate_id);
+
 
 				for (auto it = vertices.begin(); it != vertices.end(); ++it) {
 					for (id_t edge_id : graph_edges[it->first]) {
+						RCLCPP_INFO(this->get_logger(), "Edge: (%u, %u)", it->first, edge_id);
 
 						float dist = sqrt(pow(it->second.getx() - vertices[edge_id].getx(), 2) + pow(it->second.gety() - vertices[edge_id].gety(), 2));
 						it->second.addEdge(edge_id, dist, "");
@@ -76,14 +80,27 @@ class AStarPlanner : public rclcpp::Node {
 
 				Astar astar;
 
-				for (size_t i = 0; i < this->graph_response_->names.size(); ++i) {
-					RCLCPP_INFO(this->get_logger(), "Path for %s", this->graph_response_->names[i].c_str());
-					std::vector<id_t> path = astar.findPath(this->graph_response_->start_ids[i], this->graph_response_->gate_id, vertices);
-					for (auto id : path) {
+				std::vector<id_t> start_ids;
+
+				// for (auto id : this->graph_response_->start_ids) {
+				for (size_t i = 0; i < this->graph_response_->start_ids.size(); ++i) {
+
+					RCLCPP_INFO(this->get_logger(), "ID: %u", this->graph_response_->start_ids[i]);
+					RCLCPP_INFO(this->get_logger(), "NAME: %s", this->graph_response_->names[i].c_str());
+
+					start_ids.push_back(this->graph_response_->start_ids[i]);
+				}
+				RCLCPP_INFO(this->get_logger(), "%zu", this->graph_response_->names.size());
+
+				std::map<std::string, std::vector<id_t>> paths = astar.generatePaths(start_ids, this->graph_response_->names, this->graph_response_->gate_id, vertices);
+				RCLCPP_INFO(this->get_logger(), "here2");
+
+				for (auto it = paths.begin(); it != paths.end(); ++it) {
+					RCLCPP_INFO(this->get_logger(), "%s", it->first.c_str());
+					for (auto id : it->second) {
 						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
 					}
-					RCLCPP_INFO(this->get_logger(), "path size: %zu", path.size());
-
+					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
 				}
 
 				complete = true;
