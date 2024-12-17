@@ -1,6 +1,7 @@
 #include "shelfino_pathfollow/followclient.hpp"
 
 
+
 follow_client::follow_client() : Node("follow_client")
 {
   // Define the QoS
@@ -9,25 +10,71 @@ follow_client::follow_client() : Node("follow_client")
   // set Kmax
   this->Kmax_ = 1.0;
 
+  // get the name of robot
+  this->declare_parameter<std::vector<std::string>>("init_names", {});
+  auto robot_names = this->get_parameter("init_names").as_string_array();
 
-  // SUBSCRIPTION 1 : listen to amcl_pose topic
-  // Listen to the /shelfino#/amcl_pose topic
-  this->shelfino_pose_sub_ = this->create_subscription<PoseWithCovarianceStamped>(
-    "/shelfino#/amcl_pose", qos, std::bind(&follow_client::handle_shelfino_pose, this, std::placeholders::_1),       // "topic_name" ?
-    amcl_pose_options
-  );
+  // Create a callback group
+  auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  auto global_path_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-  // SUBSCRIPTION 2: Listen to the /gate_pose topic
+
+  rclcpp::SubscriptionOptions amcl_pose_options;
+  amcl_pose_options.callback_group = amcl_pose_cb_group;
+
+  rclcpp::SubscriptionOptions global_path_options;
+  global_path_options.callback_group = global_path_cb_group;  
+
+  if (robot_names.empty())
+  {
+      RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
+      return;
+  }
+
+  for (const auto &robot_name : robot_names)
+  {
+      std::string topic_name = "/" + robot_name + "/amcl_pose";
+      std::string path_topic_name = "/" + robot_name + "/global_path";
+
+
+      RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
+      
+      //SUBSCRIPTION 1: Listen to robots' position /shelfino#/amcl_pose
+      auto callback = [this, robot_name](const PoseWithCovarianceStamped::SharedPtr msg) {
+          this->position_callback(robot_name, msg);
+      };
+
+      robot_position_subscribers_.emplace_back(
+          this->create_subscription<PoseWithCovarianceStamped>(
+              topic_name, qos, callback, amcl_pose_options));
+
+      //SUBSCRIPTION 2: Listen to path topic published by A*/RRT* 
+      auto path_callback = [this, robot_name](const Path::SharedPtr msg) {
+          this->global_path_callback(robot_name, msg);
+      };
+
+      global_path_subscribers_.emplace_back(
+          this->create_subscription<Path>(
+              path_topic_name, qos, path_callback, global_path_options));
+  }
+
+ 
+  // SUBSCRIPTION 3: Listen to the /gate_pose+/obstacles+/borders topic
   this->gates_pose_sub_ = this->create_subscription<PoseArray>(
     "/gates", qos, std::bind(&follow_client::handle_gate_pose, this, std::placeholders::_1)
   );
+  this->subscription_obstacles_ = this->create_subscription<ObstacleArrayMsg>(
+    "/obstacles", qos, std::bind(&follow_client::obstacles_callback, this, std::placeholders::_1)
+  );
+  this->subscription_borders_ = this->create_subscription<Polygon>(
+    "/map_borders", qos, std::bind(&follow_client::borders_callback, this, std::placeholders::_1)
+  );
 
-  // SUBSCRIPTION 3 : listen to path topic published by A*/RRT* planner?
   // TODO1: define the msgs type
   // TODO2: define callback function
-  this->dubins_path_sub_ = this->create_subscription<>(
-    "/globalpath", qos, std::bind(&follow_client::handle_dubins_path, this, std::placeholders::_1)
-  );
+  // this->dubins_path_sub_ = this->create_subscription<Path>(
+  //   "/globalpath", qos, std::bind(&follow_client::handle_dubins_path, this, std::placeholders::_1)
+  // );
 
   // PUBLISH: to tell other shelfino robots that it is ready
   this->shelfino_ready_pub_ = this->create_publisher<std_msgs::msg::Bool>("ready", qos);
@@ -40,20 +87,19 @@ follow_client::follow_client() : Node("follow_client")
     "start", std::bind(&follow_client::start_callback, this, std::placeholders::_1, std::placeholders::_2)
   );
 
-  // ACTION1: compute and follow path [Nav2]
-  // ACTION2: Send the path to action server: followpath [local planner]
-  // TODO3: compute_path_to_pose client should be substitute to our own path planner
-  this->compute_path_to_pose_client_ = rclcpp_action::create_client<ComputePathToPose>(this, "compute_path_to_pose");
+  // ACTION1: Send the path to action server: followpath [local planner]
   this->follow_path_client_ = rclcpp_action::create_client<FollowPath>(this, "follow_path");
+
 
   RCLCPP_INFO(this->get_logger(), "follow path client node created.");
 }
 
 
-void follow_client::handle_shelfino_pose(const PoseWithCovarianceStamped::SharedPtr msg)
+void follow_client::position_callback(const string name, const PoseWithCovarianceStamped::SharedPtr msg)
 {
-  RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
   this->shelfino_pose = msg->pose.pose;                             // store shelfino pose[x,y] in shelfino_pose
+  this->robot_poses_.emplace_back(*msg);                            // an vector of shelfinos' poses
+  RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
 }
 
 
@@ -74,10 +120,10 @@ void follow_client::handle_gate_pose(const PoseArray::SharedPtr msg)
   this->shelfino_ready_pub_->publish(msg_ready);       
 }
 
-void follow_client::handle_dubins_path(const Path::SharedPtr msg)
+void follow_client::global_path_callback(const Path::SharedPtr msg)
 {
   RCLCPP_INFO(this->get_logger(), "Received path generated by A*");
-  this->global_path = msg->Path.path;                             // store high level planning path
+  this->global_paths_.emplace_back(*msg);                            // an vector of shelfino#' path
   this->global_path_received = true; 
 }
 
@@ -93,8 +139,8 @@ void follow_client::start_callback(const std::shared_ptr<Empty::Request> request
   RCLCPP_INFO(this->get_logger(), "Navigating to x=%f, y=%f, yaw=%f", this->gate_pose.position.x, this->gate_pose.position.y, get_yaw_from_q(this->gate_pose.orientation));
 
   // generate dubins path
-  if(this->global_path_received){
-    const auto &poses = this->global_path.poses;       //  geometry_msgs/PoseStamped.msg: geometry_msgs/Pose poseall 
+  if(!this->global_paths_.empty()){
+    const auto &poses = this->global_paths_.poses;       //  geometry_msgs/PoseStamped.msg: geometry_msgs/Pose poseall 
     if (poses.size()<2){
       RCLCPP_INFO(this-get_logger(),"Global Path has less than 2 points");
     }
@@ -141,11 +187,11 @@ void follow_client::start_callback(const std::shared_ptr<Empty::Request> request
        
    }// END: iteration global path
 
-  //call move function to activate the action server: follow path
-  this->move(dubins_path->path);
+   //call move function to activate the action server: follow path
+   this->move(dubins_path->path);
 
   }
-
+}
 
 void follow_client::move(const Path& path)
 {
@@ -211,8 +257,11 @@ int main(int argc, char * argv[])
   RCLCPP_INFO(rclcpp::get_logger("follow_client"), "Starting follow path client node.");
   srand(time(NULL));
   rclcpp::init(argc, argv);                                       // initializes ROS2 C++ client library
+  rclcpp::executors::MultiThreadedExecutor executor;
   auto node = std::make_shared<follow_client>();                  // create a node named "follow_client"
-  rclcpp::spin(node);
+  executor.add_node(node);
+  executor.spin();
+  // rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }
