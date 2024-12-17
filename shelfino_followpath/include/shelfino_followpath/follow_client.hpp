@@ -29,6 +29,10 @@
 #include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "obstacles_msgs/msg/obstacle_msg.hpp"
 
+#include "path_interface/msg/path_array.hpp"
+#include "path_interface/srv/move_robots.hpp"
+
+
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -45,6 +49,8 @@ using ClientComputePathToPoseGoalHandle = rclcpp_action::ClientGoalHandle<Comput
 using ClientFollowPathGoalHandle = rclcpp_action::ClientGoalHandle<FollowPath>;
 using ObstacleArrayMsg = obstacles_msgs::msg::ObstacleArrayMsg;
 using Polygon = geometry_msgs::msg::Polygon;
+using PathArray = path_interface::msg::PathArray;
+using MoveRobots = path_interface::srv::MoveRobots;
 
 static const rmw_qos_profile_t rmw_qos_profile_custom =
 {
@@ -82,19 +88,20 @@ private:
 
   Pose shelfino_pose;
   std::vector<PoseWithCovarianceStamped> robot_poses_;
-  std::vector<Path> global_paths_;
+  PathArray global_paths_;
   bool global_path_received = false;
 
   double Kmax_ = 1.0;
   
-  std::unordered_map<std::string, rclcpp_action::Client<FollowPath>::sharedPtr> follow_path_clients_array;
+  std::unordered_map<std::string, rclcpp_action::Client<FollowPath>::SharedPtr> follow_path_clients_array;
   rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
   rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
-  std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr robot_position_subscribers_;
+  std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr> robot_position_subscribers_;
   rclcpp::Subscription<Path>::SharedPtr dubins_path_sub_;
   rclcpp::Subscription<PoseArray>::SharedPtr gates_pose_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr shelfino_ready_pub_;
-  rclcpp::Service<Empty>::SharedPtr start_service_;
+  rclcpp::Service<MoveRobots>::SharedPtr start_service_;
+  // rclcpp::Subscription<PathArray> subscription_paths_;
 
   rclcpp_action::Client<ComputePathToPose>::SharedPtr compute_path_to_pose_client_;
   rclcpp_action::Client<FollowPath>::SharedPtr follow_path_client_;
@@ -105,14 +112,16 @@ public:
 
 private:
 
-  void position_callback(const PoseWithCovarianceStamped::SharedPtr msg);
+  void position_callback(const std::string name, const PoseWithCovarianceStamped::SharedPtr msg);
 
   void global_path_callback(const Path::SharedPtr msg);  
 
+  void paths_callback(const PathArray::SharedPtr msg);
+
   void handle_gate_pose(const PoseArray::SharedPtr msg);
 
-  void start_callback(const std::shared_ptr<Empty::Request> request,
-             std::shared_ptr<Empty::Response> response);
+  void start_callback(const std::shared_ptr<MoveRobots::Request> request,
+            std::shared_ptr<MoveRobots::Response> response);
 
   void goal_response_path_planning_callback(
     const ClientComputePathToPoseGoalHandle::SharedPtr & goal_handle);

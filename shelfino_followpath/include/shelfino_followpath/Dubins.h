@@ -56,9 +56,9 @@ struct DubinsCurve {
 
 DubinsCurve dubinsShortestPath(double x0, double y0, double th0, double xf, double yf, double thf, double Kmax);
 
-std::tuple<double,double,double>computeArcPoint(double s, const DUbinsArc &arc){
+inline std::tuple<double,double,double>computeArcPoint(double s, const DubinsArc &arc){
     double x = arc.x0 + s * sinc(arc.k * s / 2.0) * cos(arc.th0 + arc.k * s / 2.0);
-    double x = arc.y0 + s * sinc(arc.k * s / 2.0) * cos(arc.th0 + arc.k * s / 2.0);    
+    double y = arc.y0 + s * sinc(arc.k * s / 2.0) * cos(arc.th0 + arc.k * s / 2.0);    
     double th = mod2pi(arc.th0 + arc.k * s);
     return {x, y, th};
 }

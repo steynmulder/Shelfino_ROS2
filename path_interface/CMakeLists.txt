@@ -8,11 +8,17 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(nav_msgs REQUIRED)
 
 rosidl_generate_interfaces(path_interface
   "msg/Graph.msg"
   "msg/GraphEdge.msg"
   "msg/GraphNode.msg"
+  "msg/PathArray.msg"
   "srv/GenerateGraph.srv"
+  "srv/MoveRobots.srv"
+  DEPENDENCIES nav_msgs
  )
+
+ament_export_dependencies(nav_msgs)
 ament_package()
