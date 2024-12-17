@@ -22,6 +22,8 @@ using namespace std;
 
 int numberRobots;
 
+constexpr float MIN_LENGTH = 0.5;
+
 class RoadmapServer : public rclcpp::Node
 {
   public:
@@ -74,15 +76,13 @@ class RoadmapServer : public rclcpp::Node
 
             robot_position_subscribers_.emplace_back(
                 this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-                    topic_name, 10, callback));
+                    topic_name, qos, callback));
         }
     }
 
   private:
 
     typedef enum {FREE, OCCUPIED, MIXED, OUTSIDE} STATUS;
-
-    const float min_length = 0.1;
 
     id_t id = 0;
 
@@ -136,12 +136,16 @@ class RoadmapServer : public rclcpp::Node
     unordered_map<string, Point> robot_positions;
             vector<path_interface::msg::GraphNode> nodes; // for response message
 
+    bool isClose(float a, float b, float tolerance = 1e-6) {
+        return std::abs(a - b) < tolerance;
+    }
+
     bool linesIntersect(Point& p1, Point& p2, Point& q1, Point& q2) {
         Point vp = {p2.x - p1.x, p2.y - p1.y};
         Point vq = {q2.x - q1.x, q2.y - q1.y};
         float denominator = vp.x * vq.x - vp.y * vq.y;
 
-        if (denominator == 0) {
+        if (isClose(denominator, 0.0)) {
             return false;
         }
 
@@ -164,7 +168,6 @@ class RoadmapServer : public rclcpp::Node
         pair<Point, Point> right_edge = {{node.x + node.size, node.y + node.size}, {node.x + node.size, node.y + node.size}};
 
         // TODO check if y grows downward
-        //TODO add cylinder obstacles
         if (linesIntersect(edge.p1, edge.p2, top_edge.first, top_edge.second) ||
             linesIntersect(edge.p1, edge.p2, bottom_edge.first, bottom_edge.second) || // node bottom edge
             linesIntersect(edge.p1, edge.p2, left_edge.first, left_edge.second) || // node left edge
@@ -285,7 +288,7 @@ class RoadmapServer : public rclcpp::Node
     }
 
     void decompose(QuadNode& node) {
-        if (node.size <= min_length || node.status != MIXED) {
+        if (node.size <= MIN_LENGTH || node.status != MIXED) {
             return;
         }
 
@@ -310,7 +313,7 @@ class RoadmapServer : public rclcpp::Node
         for (QuadNode& n : quads) {
             if (node != n) {
                 // north
-                if ((n.y + n.size) == node.y &&
+               if ((n.y + n.size) == node.y &&
                     (n.x + n.size) > node.x &&
                     n.x < (node.x + node.size)) {
                         result.push_back(n);
@@ -387,19 +390,22 @@ class RoadmapServer : public rclcpp::Node
     id_t getClosestVertex(Point& p) {
         GVertex closest;
         float closestDistance = INFINITY;
-        for (auto v = vertices.begin(); v != vertices.end(); ++v) {
-            if (closestDistance == INFINITY) { // TODO check that closest is free
-                closest = v->second;
-                closestDistance = sqrt(pow(p.x - (float)closest.getx(), 2) + pow(p.y - (float)closest.gety(), 2));
-                continue;
-            }
+        for (QuadNode node : quads) {
+            if (node.status == FREE) {
+                if (closestDistance == INFINITY) {
+                    closest = vertices[node.id];
+                    closestDistance = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                    continue;
+                }
 
-            GVertex vert = v->second;
-            float dist = sqrt(pow(p.x - (float)vert.getx(), 2) + pow(p.y - (float)vert.gety(), 2));
-            if (closestDistance > dist) {
-                closest = vert;
-                closestDistance = dist;
+                GVertex vert = vertices[node.id];
+                float dist = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                if (closestDistance > dist) {
+                    closest = vert;
+                    closestDistance = dist;
+                }
             }
+            
         }
 
         return closest.getStateID();
@@ -464,8 +470,6 @@ class RoadmapServer : public rclcpp::Node
 
                         n.edges.push_back(e.getDestVID());
                     }
-
-                    RCLCPP_INFO(this->get_logger(), "We have %u, %f, %f, with %zu vertices", n.id, n.x, n.y, n.edges.size());
                     
                     nodes.push_back(n);
 
@@ -494,7 +498,6 @@ class RoadmapServer : public rclcpp::Node
 
     void obstacles_callback(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
     {
-        RCLCPP_INFO(this->get_logger(), "HERE");
         for (const auto &obs : msg->obstacles) {
             vector<geometry_msgs::msg::Point32> points = obs.polygon.points;
             vector<Point> polygon;

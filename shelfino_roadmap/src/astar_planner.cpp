@@ -3,7 +3,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
-#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+// #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 #include "Astar.h"
 
@@ -37,14 +37,11 @@ class AStarPlanner : public rclcpp::Node {
 
 
         void getGraph() {
-			RCLCPP_INFO(this->get_logger(), "I AM HERE2!!!");
 
 			if (!client_->wait_for_service(std::chrono::seconds(5))) {
 				RCLCPP_ERROR(this->get_logger(), "Cannot call generate_graph service after waiting 5 seconds");
 				return;
 			}
-
-			RCLCPP_INFO(this->get_logger(), "I AM HERE3!!!");
 
 			auto request = std::make_shared<path_interface::srv::GenerateGraph::Request>();
 			// request->x = x;
@@ -54,16 +51,9 @@ class AStarPlanner : public rclcpp::Node {
             rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
 
 			try {
-				RCLCPP_INFO(this->get_logger(), "I AM HERE4!!!");
-
-				RCLCPP_INFO(this->get_logger(), "WHAT IS HAPPENING??? %zu", this->graph_response_->vertices.size()); 
-
-
 				auto graph_vertices = this->graph_response_->vertices;
 				std::map<id_t, std::vector<id_t>> graph_edges;
-				RCLCPP_INFO(this->get_logger(), "I AM HERE5!!!");
 				for (auto vertex : graph_vertices) {
-					RCLCPP_INFO(this->get_logger(), "%f", vertex.x);
 
 					GVertex v = {(id_t)vertex.id, "", vertex.x, vertex.y, 0.0};
 					for (auto edge : vertex.edges) {
@@ -72,9 +62,13 @@ class AStarPlanner : public rclcpp::Node {
 					vertices[vertex.id] = v;
 				}
 
+				RCLCPP_INFO(this->get_logger(), "Start: %u", this->graph_response_->start_ids[0]);
+				RCLCPP_INFO(this->get_logger(), "End: %u", this->graph_response_->gate_id);
+
 
 				for (auto it = vertices.begin(); it != vertices.end(); ++it) {
 					for (id_t edge_id : graph_edges[it->first]) {
+						RCLCPP_INFO(this->get_logger(), "Edge: (%u, %u)", it->first, edge_id);
 
 						float dist = sqrt(pow(it->second.getx() - vertices[edge_id].getx(), 2) + pow(it->second.gety() - vertices[edge_id].gety(), 2));
 						it->second.addEdge(edge_id, dist, "");
@@ -86,14 +80,27 @@ class AStarPlanner : public rclcpp::Node {
 
 				Astar astar;
 
-				for (size_t i = 0; i < this->graph_response_->names.size(); ++i) {
-					RCLCPP_INFO(this->get_logger(), "Path for %s", this->graph_response_->names[i].c_str());
-					std::vector<id_t> path = astar.findPath(this->graph_response_->start_ids[i], this->graph_response_->gate_id, vertices);
-					for (auto id : path) {
+				std::vector<id_t> start_ids;
+
+				// for (auto id : this->graph_response_->start_ids) {
+				for (size_t i = 0; i < this->graph_response_->start_ids.size(); ++i) {
+
+					RCLCPP_INFO(this->get_logger(), "ID: %u", this->graph_response_->start_ids[i]);
+					RCLCPP_INFO(this->get_logger(), "NAME: %s", this->graph_response_->names[i].c_str());
+
+					start_ids.push_back(this->graph_response_->start_ids[i]);
+				}
+				RCLCPP_INFO(this->get_logger(), "%zu", this->graph_response_->names.size());
+
+				std::map<std::string, std::vector<id_t>> paths = astar.generatePaths(start_ids, this->graph_response_->names, this->graph_response_->gate_id, vertices);
+				RCLCPP_INFO(this->get_logger(), "here2");
+
+				for (auto it = paths.begin(); it != paths.end(); ++it) {
+					RCLCPP_INFO(this->get_logger(), "%s", it->first.c_str());
+					for (auto id : it->second) {
 						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
 					}
-					RCLCPP_INFO(this->get_logger(), "path size: %zu", path.size());
-
+					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
 				}
 
 				complete = true;

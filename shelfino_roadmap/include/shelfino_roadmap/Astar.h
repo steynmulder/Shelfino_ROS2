@@ -19,4 +19,6 @@ private:
 
 public:
     std::vector<id_t> findPath(const id_t start_id, const id_t end_id, std::map<id_t, GVertex>& graph);
+    void resolveConflict(size_t t, id_t conflict_id, id_t end_id, std::vector<std::string>& names, std::map<std::string, std::vector<id_t>>& paths, std::map<id_t, GVertex>& graph);
+    std::map<std::string, std::vector<id_t>> generatePaths(const std::vector<id_t> start_ids, const std::vector<std::string> names, const id_t end_id, std::map<id_t, GVertex>& graph);
 };
