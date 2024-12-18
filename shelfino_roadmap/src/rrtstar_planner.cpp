@@ -4,7 +4,7 @@
 #include "rclcpp/rclcpp.hpp"
 // #include "path_interface/srv/generate_graph.hpp"
 // #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
-
+#include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "RRTstar.h"
 
 bool complete = false;
@@ -29,8 +29,19 @@ class RRTStarPlanner : public rclcpp::Node {
 			// 	"/shelfino1/amcl_pose", qos, bind(&AStarPlanner::position_callback, this, std::placeholders::_1));
 
 			client_ = this->create_client<path_interface::srv::GenerateGraph>("generate_graph");
+			get_obstacles = 
 		}
 
+
+
+		// obstacles and boders
+		this->subscription_obstacles_ = this->create_subscription<ObstacleArrayMsg>(
+			"/obstacles", qos, std::bind(&follow_client::obstacles_callback, this, std::placeholders::_1, std::placeholders::_2)
+		);
+		this->subscription_borders_ = this->create_subscription<Polygon>(
+			"/map_borders", qos, std::bind(&follow_client::borders_callback, this, std::placeholders::_1)
+		);
+		
 		
         // for graph construction
 		std::map<id_t, GVertex> vertices;
@@ -118,6 +129,8 @@ class RRTStarPlanner : public rclcpp::Node {
             this->graph_response_ = future.get();
         }
 
+
+
 		// void position_callback(const geometry_msgs::msg::PoseWithCovarianceStamped msg) {
 		// 	RCLCPP_INFO(this->get_logger(), "I AM HERE!!!");
 		// 	getGraph(msg.pose.pose.position.x, msg.pose.pose.position.y);
@@ -127,8 +140,31 @@ class RRTStarPlanner : public rclcpp::Node {
 
     private:
 		// rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
+		rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
+  		rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;	
         rclcpp::Client<path_interface::srv::GenerateGraph>::SharedPtr client_;
         path_interface::srv::GenerateGraph::Response::SharedPtr graph_response_;
+
+
+    void borders_callback(const geometry_msgs::msg::Polygon msg)
+    {
+        vector<geometry_msgs::msg::Point32> points = msg.points;
+        for (unsigned i = 0; i < points.size(); ++i) {
+            RCLCPP_INFO(this->get_logger(), "I heard a border vertex: '%f', '%f", points[i].x, points[i].y);
+            total_edges.push_back(Edge(Point(points[i].x, points[i].y), Point(points[(i+1)%points.size()].x, points[(i+1)%points.size()].y)));
+            wall_vertices.push_back(Point(points[i].x, points[i].y));
+        }
+            
+      
+    }
+
+    void gates_callback(const geometry_msgs::msg::PoseArray msg) {
+        vector<geometry_msgs::msg::Pose> poses = msg.poses;
+        for (geometry_msgs::msg::Pose& p : poses) {
+            RCLCPP_INFO(this->get_logger(), "I heard a gate vertex: '%f', '%f", p.position.x, p.position.y);
+            gates.push_back(Point(p.position.x, p.position.y));
+        }
+    }
 
 };
 

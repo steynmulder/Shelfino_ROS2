@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <random>
 
+
 struct Node {
     id_t id;
     double x, y;
@@ -43,6 +44,9 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
     std::mt19937 gen(rd());
     std::uniform_real_distribution<> dis_x(0, graph->getWidth()); // Define bounds for x and y
     std::uniform_real_distribution<> dis_y(0, graph->getHeight());
+
+    // TODO 
+    std::uniform_real_distribution<> obs(0, graph->getObstacles());// Define obstacles for x,y, radius or edge length
 
     while (goal_node == nullptr) {
         double rand_x = dis_x(gen);
@@ -105,6 +109,44 @@ std::vector<Node*> RRTstar::nearNodes(const std::vector<Node*>& tree, double x, 
 
 bool RRTstar::isCollisionFree(double x1, double y1, double x2, double y2) {
     // TODO check for collision
+
+    const double step_size = 0.1;
+    double dx = abs(x1-x2);
+    double dy = abs(y1-y2);
+    double distance = euclideanDistance(x1,y1,x2,y2);
+    int steps = static_cast(distance / step_size);
+
+    if (){
+        // check collision for cylinder
+        for (int i = 0; i <= steps; ++i){
+            double xi = x1 + i * step_size(dx/distance);
+            double yi = y1 + i * step_size(dy/distance);
+
+            // TODO: define the obs
+            for (auto obs){
+                if (euclideanDistance(xi,yi,obs.x,obs.y) <= obs.radius +0.2){
+                    return false;
+                }
+            }           
+        }
+    }
+    // check collision for poly
+    else if(){
+        int n = rectangle.size();
+        bool inside = false;
+        for (int i = 0, j = n-1; i < n; j = i++){
+            double xi = rectangle.[i].x, yi = rectangle.[i].y;
+            double xj = rectangle.[j].x, yj = rectangle.[j].y;
+
+            bool intersect = ((yi>y) != (yj >y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+    else {}
+
+
+
     return true;
 }
 
