@@ -52,6 +52,7 @@ using Polygon = geometry_msgs::msg::Polygon;
 using PathArray = path_interface::msg::PathArray;
 using MoveRobots = path_interface::srv::MoveRobots;
 
+
 static const rmw_qos_profile_t rmw_qos_profile_custom =
 {
   RMW_QOS_POLICY_HISTORY_KEEP_LAST,
@@ -106,6 +107,9 @@ private:
   rclcpp_action::Client<ComputePathToPose>::SharedPtr compute_path_to_pose_client_;
   rclcpp_action::Client<FollowPath>::SharedPtr follow_path_client_;
 
+  //TODO remove
+  nav2_msgs::action::ComputePathToPose_Goal action_msg;
+
 
 public:
   follow_client(); 
@@ -122,17 +126,19 @@ private:
 
   void start_callback(const std::shared_ptr<MoveRobots::Request> request,
             std::shared_ptr<MoveRobots::Response> response);
-
-  void goal_response_path_planning_callback(
-    const ClientComputePathToPoseGoalHandle::SharedPtr & goal_handle);
   
-  void feedback_path_planning_callback(ClientComputePathToPoseGoalHandle::SharedPtr,
-    const std::shared_ptr<const ComputePathToPose::Feedback> feedback);
+  void goal_response_path_planning_callback(
+  const ClientComputePathToPoseGoalHandle::SharedPtr & goal_handle);
 
-  void result_path_planning_callback(
-    const ClientComputePathToPoseGoalHandle::WrappedResult & result);
+void feedback_path_planning_callback(ClientComputePathToPoseGoalHandle::SharedPtr,
+  const std::shared_ptr<const ComputePathToPose::Feedback> feedback);
 
-  void move(const std::string &robot_name, const Path& path);
+void result_path_planning_callback(
+  const ClientComputePathToPoseGoalHandle::WrappedResult & result);
+
+  // void move(const std::string &robot_name, const Path& path);
+  void move(const Path& path);
+
 
   void goal_response_path_following_callback(
     const ClientFollowPathGoalHandle::SharedPtr & goal_handle);

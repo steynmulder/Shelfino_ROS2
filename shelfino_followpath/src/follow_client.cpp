@@ -97,6 +97,9 @@ follow_client::follow_client() : Node("follow_client")
   // ACTION1: Send the path to action server: followpath [local planner]
   // this->follow_path_client_ = rclcpp_action::create_client<FollowPath>(this, "follow_path");
 
+  this->compute_path_to_pose_client_ = rclcpp_action::create_client<ComputePathToPose>(this, "/shelfino1/compute_path_to_pose");
+  this->follow_path_client_ = rclcpp_action::create_client<FollowPath>(this, "/shelfino1/follow_path");
+
 
   RCLCPP_INFO(this->get_logger(), "follow path client node created.");
 }
@@ -150,20 +153,32 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
   RCLCPP_INFO(this->get_logger(), "Navigating to x=%f, y=%f, yaw=%f", this->gate_pose.position.x, this->gate_pose.position.y, get_yaw_from_q(this->gate_pose.orientation));
 
   // generate dubins path
-  for (size_t robot_idx = 0; robot_idx < request->paths.paths.size();++robot_idx){
+  for (size_t robot_idx = 0; robot_idx < 1; ++robot_idx) { //TODO request->paths.paths.size();++robot_idx){
+    RCLCPP_INFO(this->get_logger(), "path size: %zu", request->paths.paths[robot_idx].poses.size());
     const std::string &robot_name = request->paths.names[robot_idx];
     const auto &global_path = request->paths.paths[robot_idx];
+    RCLCPP_INFO(this->get_logger(), "here1");
     if(!global_path.poses.empty()){
-      const auto &poses = global_path.poses;       
+      const auto &poses = global_path.poses;    
+      RCLCPP_INFO(this->get_logger(), "here2");
+
       if (poses.size()<2){
         RCLCPP_INFO(this->get_logger(),"Global Path has less than 2 points");
       }
 
+    RCLCPP_INFO(this->get_logger(), "here3");
+
+
       Path dubins_path;
       dubins_path.header = global_path.header;
 
+    RCLCPP_INFO(this->get_logger(), "here4");
+
+
       // iterate all points in the global path
       for (size_t i = 0; i < poses.size() -1; ++i){
+         RCLCPP_INFO(this->get_logger(), "here5");
+
         const auto &start_pose = poses[i].pose;
         const auto &goal_pose  = poses[i+1].pose;
 
@@ -203,9 +218,57 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
         } // END: discretion of one arc dubins path
           
       }// END: iteration global path
+    RCLCPP_INFO(this->get_logger(), "here6");
+
+    // Path test_path;
+    // test_path.header.frame_id = "map";
+    // test_path.header.stamp = rclcpp::Clock().now();
+
+    // geometry_msgs::msg::PoseStamped pose_stamped;
+    // pose_stamped.header = test_path.header;
+    // pose_stamped.pose.position.x = 2;
+    // pose_stamped.pose.position.y = 6;
+    // pose_stamped.pose.position.z = 0.0;
+    // pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,0,0));
+    // test_path.poses.push_back(pose_stamped);
+
+    // pose_stamped.header = test_path.header;
+    // pose_stamped.header = test_path.header;
+    // pose_stamped.pose.position.x = 2;
+    // pose_stamped.pose.position.y = 7;
+    // pose_stamped.pose.position.z = 0.0;
+    // pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,0,0));
+    // test_path.poses.push_back(pose_stamped);
+
+    this->action_msg = ComputePathToPose::Goal();
+    this->action_msg.goal.pose.position.x = -1.0;
+    this->action_msg.goal.pose.position.y = 5.0;
+    this->action_msg.goal.pose.position.z = 0.0;
+    this->action_msg.goal.pose.orientation.x = 0.0;
+    this->action_msg.goal.pose.orientation.y = 0.0;
+    this->action_msg.goal.pose.orientation.z = 0.0;
+    this->action_msg.goal.pose.orientation.w = 0.0;
+
+
+
+    this->action_msg.use_start = false;
+    this->action_msg.goal.header.stamp = this->now();
+    this->action_msg.goal.header.frame_id = "map";
+
+    if(!this->compute_path_to_pose_client_->wait_for_action_server(std::chrono::seconds(10))){
+      RCLCPP_ERROR(this->get_logger(), "Action server for ComputePathToPose not available after waiting.");
+      exit(1);
+    }
+
+    auto send_goal_options = rclcpp_action::Client<ComputePathToPose>::SendGoalOptions();
+  send_goal_options.goal_response_callback = std::bind(&follow_client::goal_response_path_planning_callback, this, std::placeholders::_1);
+  send_goal_options.feedback_callback = std::bind(&follow_client::feedback_path_planning_callback, this, std::placeholders::_1, std::placeholders::_2);
+  send_goal_options.result_callback = std::bind(&follow_client::result_path_planning_callback, this, std::placeholders::_1);
+
+  this->compute_path_to_pose_client_->async_send_goal(this->action_msg, send_goal_options);
 
       //call move function to activate the action server: follow path
-      this->move(robot_name, dubins_path);
+      // this->move(robot_name, test_path);
 
     }
 
@@ -214,65 +277,233 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
 
 }
 
-void follow_client::move(const std::string &robot_name,const Path& path)
+void follow_client::goal_response_path_planning_callback(
+  const ClientComputePathToPoseGoalHandle::SharedPtr & goal_handle)
 {
-  // find if there already exists a shelfino#/followpath action server
-  // if not create one 
-  if(follow_path_clients_array.find(robot_name) == follow_path_clients_array.end()){
-    follow_path_clients_array[robot_name] = rclcpp_action::create_client<FollowPath>(
-      this, "/"+ robot_name + "/follow_path");
-  }
-
-  auto client = follow_path_clients_array[robot_name];
-
-  RCLCPP_INFO(this->get_logger(), "Moving to gate");
-  if(!client->wait_for_action_server(std::chrono::seconds(10))){
-    RCLCPP_ERROR(this->get_logger(), "Action server for %s not available after waiting.",robot_name.c_str());
+  if (!goal_handle){
+    RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the ComputePathToPose server.");
     exit(1);
-  }  
+  }
+  RCLCPP_INFO(this->get_logger(), "Goal accepted by the ComputePathToPose server.");
+}
+
+void follow_client::feedback_path_planning_callback(
+  ClientComputePathToPoseGoalHandle::SharedPtr,
+  const std::shared_ptr<const ComputePathToPose::Feedback> feedback)
+{
+  RCLCPP_INFO(this->get_logger(), "Received feedback from ComputePathToPose");
+}
+
+void follow_client::result_path_planning_callback(
+  const ClientComputePathToPoseGoalHandle::WrappedResult & result)
+{
+  switch (result.code){
+    case rclcpp_action::ResultCode::SUCCEEDED:
+      RCLCPP_INFO(this->get_logger(), "Path planned, starting to move.");
+      this->move(result.result->path);
+      break;
+    case rclcpp_action::ResultCode::ABORTED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was aborted from ComputePathToPose");
+      break;
+    case rclcpp_action::ResultCode::CANCELED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was canceled by ComputePathToPose");
+      break;
+    default:
+      RCLCPP_ERROR(this->get_logger(), "[ComputePathToPose] Unknown result code");
+      exit(1);
+      break;
+  }
+}
+
+// void follow_client::move(const std::string &robot_name,const Path& path)
+// {
+//   using namespace std::placeholders;
+//   // find if there already exists a shelfino#/followpath action server
+//   // if not create one 
+//     RCLCPP_INFO(this->get_logger(), "here7");
+
+//   // if(follow_path_clients_array.find(robot_name) == follow_path_clients_array.end()){
+//     // follow_path_clients_array[robot_name] = rclcpp_action::create_client<FollowPath>(
+//     //   this, "/"+ robot_name + "/follow_path");
+//   // }
+//     RCLCPP_INFO(this->get_logger(), "here8");
+
+//   rclcpp_action::Client<FollowPath>::SharedPtr client_ = rclcpp_action::create_client<FollowPath>(this, "/"+ robot_name + "/follow_path");
+//   follow_path_clients_array[robot_name] = client_;
+
+//     RCLCPP_INFO(this->get_logger(), "here9");
 
 
+//   RCLCPP_INFO(this->get_logger(), "Moving to gate");
+//   if(!client_->wait_for_action_server(std::chrono::seconds(10))){
+//     RCLCPP_ERROR(this->get_logger(), "Action server for %s not available after waiting.",robot_name.c_str());
+//     exit(1);
+//   }  
+
+//     RCLCPP_INFO(this->get_logger(), "here10");
+
+
+//   for (auto pose : path.poses) {
+//     RCLCPP_INFO(this->get_logger(), "name: %s, x: %f, y: %f", robot_name.c_str(), pose.pose.position.x, pose.pose.position.y);
+
+//   }
+
+//   auto action_msg = FollowPath::Goal();
+//   action_msg.path = path;
+//   action_msg.controller_id = "FollowPath";
+
+//     RCLCPP_INFO(this->get_logger(), "here11");
+
+
+//   RCLCPP_INFO(this->get_logger(), "Sending goal to FollowPath action server.");
+
+//   auto send_goal_options = rclcpp_action::Client<FollowPath>::SendGoalOptions();
+//   send_goal_options.goal_response_callback = [this, robot_name](const auto &goal_handle){
+//     if(!goal_handle){
+//       RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
+//       exit(1);   
+//     }
+//     RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
+
+//   };
+
+//     RCLCPP_INFO(this->get_logger(), "here12");
+
+
+
+//   send_goal_options.feedbackrobot_name
+//   };
+//     RCLCPP_INFO(this->get_logger(), "here13");
+
+
+//   send_goal_options.result_callback = [this, robot_name](const auto &result){
+//     switch (result.code){
+//       case rclcpp_action::ResultCode::SUCCEEDED:
+//         RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
+//         break;
+//       case rclcpp_action::ResultCode::ABORTED:
+//         RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
+//         break;
+//       case rclcpp_action::ResultCode::CANCELED:
+//         RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
+//         break;
+//       default:
+//         RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
+//         exit(1);
+//         break;
+//     }
+//   };
+
+// //     send_goal_options.goal_response_callback = [this](const auto &goal_handle) {
+// //     // Your callback logic
+// //     if (goal_handle) {
+// //         RCLCPP_INFO(this->get_logger(), "Goal was accepted");
+// //     } else {
+// //         RCLCPP_ERROR(this->get_logger(), "Goal was rejected");
+// //     }
+// // };
+
+// //     send_goal_options.feedback_callback = [this](
+// //     const auto &feedback) {
+    
+// //     if (feedback) {
+// //         RCLCPP_INFO(this->get_logger(), "Current distance to goal: %f", feedback->distance_to_goal);
+// //     } else {
+// //         RCLCPP_WARN(this->get_logger(), "Feedback is null.");
+// //     }
+// // };
+
+// //     send_goal_options.result_callback = [this](const auto &result) {
+// //     try {
+// //         // auto result = future.get();
+// //         if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
+// //             RCLCPP_INFO(this->get_logger(), "Goal succeeded!");
+// //         } else if (result.code == rclcpp_action::ResultCode::ABORTED) {
+// //             RCLCPP_ERROR(this->get_logger(), "Goal was aborted.");
+// //         } else if (result.code == rclcpp_action::ResultCode::CANCELED) {
+// //             RCLCPP_WARN(this->get_logger(), "Goal was canceled.");
+// //         } else {
+// //             RCLCPP_ERROR(this->get_logger(), "Unknown result code: %d", result.code);
+// //         }
+// //     } catch (const std::exception &e) {
+// //         RCLCPP_ERROR(this->get_logger(), "Error during result processing: %s", e.what());
+// //     }
+// // };
+
+
+//     RCLCPP_INFO(this->get_logger(), "here14");
+
+
+//   follow_path_clients_array[robot_name]->async_send_goal(action_msg, send_goal_options);       // send msgs to action server: followpath 
+
+//     RCLCPP_INFO(this->get_logger(), "here15");
+
+// }
+
+void follow_client::move(const Path& path)
+{
+  RCLCPP_INFO(this->get_logger(), "Moving to gate");
+
+  // for (auto pose : path.poses) {
+  //   RCLCPP_INFO(this->get_logger(), "Pose: %f, %f", pose.pose.position.x, pose.pose.position.y);
+
+  // }
+  // rclcpp_action::Client<FollowPath>::SharedPtr client_ = rclcpp_action::create_client<FollowPath>(this, "/shelfino1/follow_path");
+  // follow_path_clients_array["shelfino1"] = client_;
+  if(!this->follow_path_client_->wait_for_action_server(std::chrono::seconds(10))){
+    RCLCPP_ERROR(this->get_logger(), "Action server for FollowPath not available after waiting.");
+    exit(1);
+  }
 
   auto action_msg = FollowPath::Goal();
   action_msg.path = path;
 
+
   RCLCPP_INFO(this->get_logger(), "Sending goal to FollowPath action server.");
 
   auto send_goal_options = rclcpp_action::Client<FollowPath>::SendGoalOptions();
-  send_goal_options.goal_response_callback = [this, robot_name](const auto &goal_handle){
-    if(!goal_handle){
-      RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
-      exit(1);   
-    }
-    RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
+  send_goal_options.goal_response_callback = std::bind(&follow_client::goal_response_path_following_callback, this, std::placeholders::_1);
+  send_goal_options.feedback_callback = std::bind(&follow_client::feedback_path_following_callback, this, std::placeholders::_1, std::placeholders::_2);
+  send_goal_options.result_callback = std::bind(&follow_client::result_path_following_callback, this, std::placeholders::_1);
 
-  };
+  this->follow_path_client_->async_send_goal(action_msg, send_goal_options);
+}
 
+void follow_client::goal_response_path_following_callback(
+  const ClientFollowPathGoalHandle::SharedPtr & goal_handle)
+{
+  if (!goal_handle){
+    RCLCPP_ERROR(this->get_logger(), "Goal was rejected by the FollowPath server.");
+    exit(1);
+  }
+  RCLCPP_INFO(this->get_logger(), "Goal accepted by the FollowPath server.");
+}
 
-  send_goal_options.feedback_callback = [this, robot_name](auto, const auto &feedback){
-    RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
-  };
+void follow_client::feedback_path_following_callback(
+  ClientFollowPathGoalHandle::SharedPtr,
+  const std::shared_ptr<const FollowPath::Feedback> feedback)
+{
+  RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
+}
 
-
-  send_goal_options.result_callback = [this, robot_name](const auto &result){
-    switch (result.code){
-      case rclcpp_action::ResultCode::SUCCEEDED:
-        RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
-        break;
-      case rclcpp_action::ResultCode::ABORTED:
-        RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
-        break;
-      case rclcpp_action::ResultCode::CANCELED:
-        RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
-        break;
-      default:
-        RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
-        exit(1);
-        break;
-    }
-  };
-
-  client->async_send_goal(action_msg, send_goal_options);       // send msgs to action server: followpath 
+void follow_client::result_path_following_callback(
+  const ClientFollowPathGoalHandle::WrappedResult & result)
+{
+  switch (result.code){
+    case rclcpp_action::ResultCode::SUCCEEDED:
+      RCLCPP_INFO(this->get_logger(), "Path followed, reached gate.");
+      break;
+    case rclcpp_action::ResultCode::ABORTED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was aborted from FollowPath");
+      break;
+    case rclcpp_action::ResultCode::CANCELED:
+      RCLCPP_ERROR(this->get_logger(), "Goal was canceled by FollowPath");
+      break;
+    default:
+      RCLCPP_ERROR(this->get_logger(), "[FollowPath] Unknown result code");
+      exit(1);
+      break;
+  }
 }
 
 // void follow_client::goal_response_path_following_callback(
@@ -318,11 +549,11 @@ int main(int argc, char * argv[])
   RCLCPP_INFO(rclcpp::get_logger("follow_client"), "Starting follow path client node.");
   srand(time(NULL));
   rclcpp::init(argc, argv);                                       // initializes ROS2 C++ client library
-  rclcpp::executors::MultiThreadedExecutor executor;
+  // rclcpp::executors::MultiThreadedExecutor executor;
   auto node = std::make_shared<follow_client>();                  // create a node named "follow_client"
-  executor.add_node(node);
-  executor.spin();
-  // rclcpp::spin(node);
+  // executor.add_node(node);
+  // executor.spin();
+  rclcpp::spin(node);
   rclcpp::shutdown();
   return 0;
 }
