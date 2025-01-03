@@ -2,8 +2,8 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
-// #include "path_interface/srv/generate_graph.hpp"
-// #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
+#include "path_interface/srv/generate_graph.hpp"
+#include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 #include "obstacles_msgs/msg/obstacle_array_msg.hpp"
 #include "RRTstar.h"
 
@@ -12,23 +12,14 @@ bool complete = false;
 class RRTStarPlanner : public rclcpp::Node {
 	public:
 		RRTStarPlanner() : Node("rrtstar_planner") {
-			// static const rmw_qos_profile_t rmw_qos_profile_custom =
-			// {
-			// 	RMW_QOS_POLICY_HISTORY_KEEP_LAST,
-			// 	100,
-			// 	RMW_QOS_POLICY_RELIABILITY_RELIABLE,
-			// 	RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
-			// 	RMW_QOS_DEADLINE_DEFAULT,
-			// 	RMW_QOS_LIFESPAN_DEFAULT,
-			// 	RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
-			// 	RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
-			// 	false
-			// };
-			// auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
 			// subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
 			// 	"/shelfino1/amcl_pose", qos, bind(&AStarPlanner::position_callback, this, std::placeholders::_1));
+			
 
-			client_ = this->create_client<path_interface::srv::GenerateGraph>("generate_graph");
+			// call "generate_graph" server to get graph
+			// client_ = this->create_client<path_interface::srv::GenerateGraph>("generate_graph");
+
+
 			get_obstacles = 
 		}
 
@@ -48,12 +39,14 @@ class RRTStarPlanner : public rclcpp::Node {
 		std::map<id_t, GVertex> vertices;
 
 
-        void getGraph() {		
+        void getPath() {		
 
 
 			
 			// TODO define the input parameters
 			RRTstar rrtstar(&graph, step_sizde, radius);
+
+
 
 		}
 

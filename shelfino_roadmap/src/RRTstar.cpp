@@ -3,17 +3,8 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include "Dubins.h"
 
-
-struct Node {
-    id_t id;
-    double x, y;
-    Node* parent;
-    double cost;
-
-    Node(id_t id, double x, double y, Node* parent = nullptr, double cost = 0.0)
-        : id(id), x(x), y(y), parent(parent), cost(cost) {}
-};
 
 class RRTstar {
 public:
@@ -27,11 +18,7 @@ private:
     double step_size;
     double search_radius;
 
-    Node* nearestNode(const std::vector<Node*>& tree, double x, double y);
-    std::vector<Node*> nearNodes(const std::vector<Node*>& tree, double x, double y);
-    bool isCollisionFree(double x1, double y1, double x2, double y2); // Stub for collision checking
-    double euclideanDistance(double x1, double y1, double x2, double y2);
-    void rewire(std::vector<Node*>& tree, Node* new_node, const std::vector<Node*>& near_nodes);
+    // MULTI AGENT
     void resolveConflict(size_t t, id_t conflict_id, id_t end_id, vector<string>& names, map<string, vector<id_t>>& paths, map<id_t, GVertex>& graph);
     map<string, vector<id_t>> generatePaths(const vector<id_t> start_ids, const vector<string> names, const id_t end_id, map<id_t, GVertex>& graph) {
 
@@ -65,6 +52,7 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
         if (!isCollisionFree(nearest->x, nearest->y, new_x, new_y))
             continue;
 
+        // TODO: delete new_node?
         Node* new_node = new Node(tree.size(), new_x, new_y, nearest, nearest->cost + step_size);
         tree.push_back(new_node);
 
@@ -87,7 +75,9 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
     std::reverse(path.begin(), path.end());
     return path;
 }
+}
 
+// NEAREST NODE 
 Node* RRTstar::nearestNode(const std::vector<Node*>& tree, double x, double y) {
     Node* nearest = nullptr;
     double min_distance = std::numeric_limits<double>::max();
@@ -102,6 +92,7 @@ Node* RRTstar::nearestNode(const std::vector<Node*>& tree, double x, double y) {
     return nearest;
 }
 
+// NEAR NODE
 std::vector<Node*> RRTstar::nearNodes(const std::vector<Node*>& tree, double x, double y) {
     std::vector<Node*> near_nodes;
     for (Node* node : tree) {
@@ -112,46 +103,39 @@ std::vector<Node*> RRTstar::nearNodes(const std::vector<Node*>& tree, double x, 
     return near_nodes;
 }
 
+// COLLISION CHECK between point(x1,y1) and point(x2,y2)
 bool RRTstar::isCollisionFree(double x1, double y1, double x2, double y2) {
-    // TODO check for collision
+    const double step_size = 0.1;
+    double dx = abs(x1-x2);
+    double dy = abs(y1-y2);
+    double distance = euclideanDistance(x1,y1,x2,y2);
+    int steps = static_cast<int><(distance / step_size);
 
-    // const double step_size = 0.1;
-    // double dx = abs(x1-x2);
-    // double dy = abs(y1-y2);
-    // double distance = euclideanDistance(x1,y1,x2,y2);
-    // int steps = static_cast(distance / step_size);
+    // TODO: define the obs
+    for (int i = 0; i <= steps; ++i){
+        double xi = x1 + i * step_size(dx/distance);
+        double yi = y1 + i * step_size(dy/distance);
 
-    // if (){
-    //     // check collision for cylinder
-    //     for (int i = 0; i <= steps; ++i){
-    //         double xi = x1 + i * step_size(dx/distance);
-    //         double yi = y1 + i * step_size(dy/distance);
+        // CHECK 1: for cylinder
+        // TODO 
+        for (const auto& cylinder : obstacles.cylinders){
+            if (euclideanDistance(xi, yi, cylinder.x, cylinder.y) <= cylinder.radius +0.2){
+                return false;
+            }
+        }
 
-    //         // TODO: define the obs
-    //         for (auto obs){
-    //             if (euclideanDistance(xi,yi,obs.x,obs.y) <= obs.radius +0.2){
-    //                 return false;
-    //             }
-    //         }           
-    //     }
-    // }
+        // CHECK 2: for boxes
+        for(cosnt auto& box : obstacles.boxes){
+            double half_length_x = box.length_x / 2.0;
+            double half_length_y = box.length_y / 2.0;
 
-    // // check collision for poly
-    // else if(){
-    //     int n = rectangle.size();
-    //     bool inside = false;
-    //     for (int i = 0, j = n-1; i < n; j = i++){
-    //         double xi = rectangle.[i].x, yi = rectangle.[i].y;
-    //         double xj = rectangle.[j].x, yj = rectangle.[j].y;
-
-    //         bool intersect = ((yi>y) != (yj >y)) && (x<(xj-xi)*(y-yi)/(yj-yi)+xi);
-    //         if (intersect) inside = !inside;
-    //     }
-    //     return inside;
-    // }
-    // else {}
-
-
+            if (xi >= (box.x - half_length_x-0.2) && xi <= (box.x + half_length_x+0.2) &&
+                yi >= (box.y - half_length_y-0.2) && yi <= (box.y + half_length_y+0.2)
+            ){
+                return false;
+            }
+        }
+    }
 
     return true;
 }
@@ -160,6 +144,7 @@ double RRTstar::euclideanDistance(double x1, double y1, double x2, double y2) {
     return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
 }
 
+// REWIRE
 void RRTstar::rewire(std::vector<Node*>& tree, Node* new_node, const std::vector<Node*>& near_nodes) {
     for (Node* near_node : near_nodes) {
         double new_cost = new_node->cost + euclideanDistance(new_node->x, new_node->y, near_node->x, near_node->y);
@@ -169,6 +154,7 @@ void RRTstar::rewire(std::vector<Node*>& tree, Node* new_node, const std::vector
         }
     }
 }
+
 
 
 
