@@ -1,9 +1,11 @@
 #pragma once
 
 #include "Vertex.h"
+#include "GVertex.h"
 #include "Algorithm.h"
 #include "id_type.h"
 #include <vector>
+#include "Dubins.h"  
 
 class RRTstar : public Algorithm
 {
