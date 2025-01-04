@@ -3,6 +3,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "path_interface/srv/generate_graph.hpp"
+#include "path_interface/srv/move_robots.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 // #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
@@ -31,6 +32,7 @@ class AStarPlanner : public rclcpp::Node {
 			// 	"/shelfino1/amcl_pose", qos, bind(&AStarPlanner::position_callback, this, std::placeholders::_1));
 
 			client_ = this->create_client<path_interface::srv::GenerateGraph>("generate_graph");
+			move_robots_client_ = this->create_client<path_interface::srv::MoveRobots>("start");
 		}
 
 		
@@ -108,14 +110,23 @@ class AStarPlanner : public rclcpp::Node {
 						pose.pose.position.x = v.getx();
 						pose.pose.position.y = v.gety();
 						path_msg.poses.push_back(pose);
-						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
+						RCLCPP_INFO(this->get_logger(), "path id: %d, x: %f, y: %f", id, v.getx(), v.gety());
 					}
 					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
 					path_array.paths.push_back(path_msg);
+					path_array.names.push_back(it->first);
 				}
 
-				// TODO call follow_path client with path_array
+				exit(0);
 
+				// TODO call follow_path client with path_array
+				if (!move_robots_client_->wait_for_service(std::chrono::seconds(5))) {
+					RCLCPP_ERROR(this->get_logger(), "Cannot call move_robots service after waiting 5 seconds");
+					return;
+				}
+				auto move_robots_request = std::make_shared<path_interface::srv::MoveRobots::Request>();
+				move_robots_request->paths = path_array;
+				move_robots_client_->async_send_request(move_robots_request);
 				complete = true;
 				
 			} catch (const std::exception &e) {
@@ -137,6 +148,7 @@ class AStarPlanner : public rclcpp::Node {
     private:
 		// rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
         rclcpp::Client<path_interface::srv::GenerateGraph>::SharedPtr client_;
+		rclcpp::Client<path_interface::srv::MoveRobots>::SharedPtr move_robots_client_;
         path_interface::srv::GenerateGraph::Response::SharedPtr graph_response_;
 
 };
