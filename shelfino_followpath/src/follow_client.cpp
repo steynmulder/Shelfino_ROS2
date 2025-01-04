@@ -170,7 +170,8 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
 
 
       Path dubins_path;
-      dubins_path.header = global_path.header;
+      dubins_path.header.frame_id = "map";
+      dubins_path.header.stamp = rclcpp::Clock().now();
 
     RCLCPP_INFO(this->get_logger(), "here4");
 
@@ -220,55 +221,31 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
       }// END: iteration global path
     RCLCPP_INFO(this->get_logger(), "here6");
 
-    // Path test_path;
-    // test_path.header.frame_id = "map";
-    // test_path.header.stamp = rclcpp::Clock().now();
+    for (auto pose : dubins_path.poses) {
+      RCLCPP_INFO(this->get_logger(), "x: %f, y: %f, yaw: %f", pose.pose.position.x, pose.pose.position.y, pose.pose.orientation.z);
 
-    // geometry_msgs::msg::PoseStamped pose_stamped;
-    // pose_stamped.header = test_path.header;
-    // pose_stamped.pose.position.x = 2;
-    // pose_stamped.pose.position.y = 6;
-    // pose_stamped.pose.position.z = 0.0;
-    // pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,0,0));
-    // test_path.poses.push_back(pose_stamped);
-
-    // pose_stamped.header = test_path.header;
-    // pose_stamped.header = test_path.header;
-    // pose_stamped.pose.position.x = 2;
-    // pose_stamped.pose.position.y = 7;
-    // pose_stamped.pose.position.z = 0.0;
-    // pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,0,0));
-    // test_path.poses.push_back(pose_stamped);
-
-    this->action_msg = ComputePathToPose::Goal();
-    this->action_msg.goal.pose.position.x = -1.0;
-    this->action_msg.goal.pose.position.y = 5.0;
-    this->action_msg.goal.pose.position.z = 0.0;
-    this->action_msg.goal.pose.orientation.x = 0.0;
-    this->action_msg.goal.pose.orientation.y = 0.0;
-    this->action_msg.goal.pose.orientation.z = 0.0;
-    this->action_msg.goal.pose.orientation.w = 0.0;
-
-
-
-    this->action_msg.use_start = false;
-    this->action_msg.goal.header.stamp = this->now();
-    this->action_msg.goal.header.frame_id = "map";
-
-    if(!this->compute_path_to_pose_client_->wait_for_action_server(std::chrono::seconds(10))){
-      RCLCPP_ERROR(this->get_logger(), "Action server for ComputePathToPose not available after waiting.");
-      exit(1);
     }
-
-    auto send_goal_options = rclcpp_action::Client<ComputePathToPose>::SendGoalOptions();
-  send_goal_options.goal_response_callback = std::bind(&follow_client::goal_response_path_planning_callback, this, std::placeholders::_1);
-  send_goal_options.feedback_callback = std::bind(&follow_client::feedback_path_planning_callback, this, std::placeholders::_1, std::placeholders::_2);
-  send_goal_options.result_callback = std::bind(&follow_client::result_path_planning_callback, this, std::placeholders::_1);
-
-  this->compute_path_to_pose_client_->async_send_goal(this->action_msg, send_goal_options);
+    
+    
+    // Path path;
+    // path.header.frame_id = "map";
+    // path.header.stamp = rclcpp::Clock().now();
+// 
+    // tf2::Quaternion q;
+    // q.setRPY( 0, 0, -1.507);
+// 
+    // for (float i = 1.95; i > -1.0; i-=0.05) {
+      // geometry_msgs::msg::PoseStamped pose;
+      // pose.pose.position.x = i;
+      // pose.pose.position.y = 5.0;
+      // pose.pose.position.z = 0.0;
+      // pose.pose.orientation = tf2::toMsg(q);
+// 
+      // path.poses.push_back(pose);
+    // }
 
       //call move function to activate the action server: follow path
-      // this->move(robot_name, test_path);
+      // this->move(robot_name, path);
 
     }
 
@@ -300,7 +277,7 @@ void follow_client::result_path_planning_callback(
   switch (result.code){
     case rclcpp_action::ResultCode::SUCCEEDED:
       RCLCPP_INFO(this->get_logger(), "Path planned, starting to move.");
-      this->move(result.result->path);
+      // this->move(result.result->path);
       break;
     case rclcpp_action::ResultCode::ABORTED:
       RCLCPP_ERROR(this->get_logger(), "Goal was aborted from ComputePathToPose");
@@ -440,7 +417,7 @@ void follow_client::result_path_planning_callback(
 
 // }
 
-void follow_client::move(const Path& path)
+void follow_client::move(const std::string &robot_name, const Path& path)
 {
   RCLCPP_INFO(this->get_logger(), "Moving to gate");
 
@@ -484,6 +461,9 @@ void follow_client::feedback_path_following_callback(
   const std::shared_ptr<const FollowPath::Feedback> feedback)
 {
   RCLCPP_INFO(this->get_logger(), "Received feedback from FollowPath");
+  RCLCPP_INFO(this->get_logger(), "Distance to point: %f", feedback->distance_to_goal);
+  RCLCPP_INFO(this->get_logger(), "Speed: %f", feedback->speed);
+
 }
 
 void follow_client::result_path_following_callback(

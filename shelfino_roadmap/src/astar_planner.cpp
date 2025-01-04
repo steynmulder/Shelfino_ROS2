@@ -110,12 +110,14 @@ class AStarPlanner : public rclcpp::Node {
 						pose.pose.position.x = v.getx();
 						pose.pose.position.y = v.gety();
 						path_msg.poses.push_back(pose);
-						RCLCPP_INFO(this->get_logger(), "path id: %d", id);
+						RCLCPP_INFO(this->get_logger(), "path id: %d, x: %f, y: %f", id, v.getx(), v.gety());
 					}
 					RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
 					path_array.paths.push_back(path_msg);
 					path_array.names.push_back(it->first);
 				}
+
+				exit(0);
 
 				// TODO call follow_path client with path_array
 				if (!move_robots_client_->wait_for_service(std::chrono::seconds(5))) {

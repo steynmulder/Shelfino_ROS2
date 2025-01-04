@@ -109,6 +109,8 @@ private:
 
   //TODO remove
   nav2_msgs::action::ComputePathToPose_Goal action_msg;
+  Path test_path;
+  geometry_msgs::msg::PoseStamped test_pose;
 
 
 public:
@@ -136,8 +138,8 @@ void feedback_path_planning_callback(ClientComputePathToPoseGoalHandle::SharedPt
 void result_path_planning_callback(
   const ClientComputePathToPoseGoalHandle::WrappedResult & result);
 
-  // void move(const std::string &robot_name, const Path& path);
-  void move(const Path& path);
+  void move(const std::string &robot_name, const Path& path);
+  // void move(const Path& path);
 
 
   void goal_response_path_following_callback(
