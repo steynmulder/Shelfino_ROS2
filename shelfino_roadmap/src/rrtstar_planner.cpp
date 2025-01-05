@@ -23,7 +23,41 @@ struct Obstacle {
 struct Graph{
 	std::vector<Obstacle> obstacles;
     std::vector<Point> borders;	
-	double width, height;
+	double getWidth() const { return getWidthEnd - getWidthStart};
+	double getHeight() const { return getHeightEnd - getHeightStart };
+
+	double getWidthStart()const{
+		double min_x = borders[0].x;
+		for(const auto& p: borders){
+			if(p.x < min_x) min_x = p.x;
+		}
+		return min_x;
+	}
+
+	double getWidthEnd()const{
+		double max_x = borders[0].x;
+		for(const auto& p: borders){
+			if(p.x > max_x) max_x = p.x;
+		}
+		return max_x;
+	}
+
+	double getHeightStart()const{
+		double min_y = borders[0].y;
+		for(const auto& p: borders){
+			if(p.y < min_y) min_y = p.y;
+		}
+		return min_y;
+	}
+
+	double getHeightEnd()const{
+		double max_y = borders[0].y;
+		for(const auto& p: borders){
+			if(p.y > max_y) max_y = p.y;
+		}
+		return max_y;
+	}
+
 }
 
 struct Point {
@@ -49,6 +83,7 @@ class RRTStarPlanner : public rclcpp::Node {
 		}
 
 		// shelfino#/initialpose? 
+		// !TODO: this topic needs to be modfified!
         subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
             "/amcl_pose", qos, std::bind(&RRTStarPlanner::position_callback, this, std::placeholders::_1));
 
@@ -109,7 +144,7 @@ class RRTStarPlanner : public rclcpp::Node {
 			for (const auto &obs : msg->obstacles) {
 				Obstacle obstacles_info;
 				vector<geometry_msgs::msg::Point32> points = obs.polygon.points;
-				
+
 				// FOR CYLINDER
 				if (obs.radius > 0.0) { 
 					RCLCPP_INFO(this->get_logger(), "I heard a cylinder obstacle: '%f', '%f', '%f'", obs.polygon.points[0].x, obs.polygon.points[0].y, obs.radius);

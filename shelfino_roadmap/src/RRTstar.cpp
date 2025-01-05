@@ -32,12 +32,9 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
     Node* goal_node = nullptr;
     std::random_device rd;
     std::mt19937 gen(rd());
-    // TODO define borders 
-    std::uniform_real_distribution<> dis_x(0, graph->getWidth()); 
-    std::uniform_real_distribution<> dis_y(0, graph->getHeight());
-
-    // TODO Define obstacles for x,y, radius or edge length
-    std::uniform_real_distribution<> obs(0, graph->getObstacles());
+  
+    std::uniform_real_distribution<> dis_x(graph->getWidthStart(), graph->getWidthEnd()); 
+    std::uniform_real_distribution<> dis_y(graph->getHeightStart(), graph->getHeightEnd());
 
 
     while (goal_node == nullptr) {
@@ -111,30 +108,32 @@ bool RRTstar::isCollisionFree(double x1, double y1, double x2, double y2) {
     double distance = euclideanDistance(x1,y1,x2,y2);
     int steps = static_cast<int><(distance / step_size);
 
-    // TODO: define the obs
     for (int i = 0; i <= steps; ++i){
         double xi = x1 + i * step_size(dx/distance);
         double yi = y1 + i * step_size(dy/distance);
 
-        // CHECK 1: for cylinder
-        // TODO 
-        for (const auto& cylinder : obstacles.cylinders){
-            if (euclideanDistance(xi, yi, cylinder.x, cylinder.y) <= cylinder.radius +0.2){
-                return false;
+        for (const auto& obstacle : graph->obstacles){
+            // CHECK 1: for cylinder
+            if (obstacle.is_cylinder){
+                if (euclideanDistance(xi, yi, obstacle.x, obstacle.y) <= obstacle.radius +0.2){
+                    return false;}
             }
+            // CHECK 2: for polygon
+            else{
+                int n = obstacle.vertices.size();
+                bool inside = false;
+                for(int j=0, k = n-1; j<n; k = j++){
+                    double xj = obstacle.vertices[j].first, yj = obstacle.vertices[j].second;
+                    double xk = obstacle.vertices[k].first, yk = obstacle.vertices[k].second;
+                    
+                    bool intersect = ((yj>yi)!= (yk>yi)) && (xi <(xk-xj)*(yi-yj)/(yk-yj)+xj);
+                    if(intersect) inside = !inside;
+                }
+                if (inside) {return false;}
+            }
+
         }
 
-        // CHECK 2: for boxes
-        for(cosnt auto& box : obstacles.boxes){
-            double half_length_x = box.length_x / 2.0;
-            double half_length_y = box.length_y / 2.0;
-
-            if (xi >= (box.x - half_length_x-0.2) && xi <= (box.x + half_length_x+0.2) &&
-                yi >= (box.y - half_length_y-0.2) && yi <= (box.y + half_length_y+0.2)
-            ){
-                return false;
-            }
-        }
     }
 
     return true;
