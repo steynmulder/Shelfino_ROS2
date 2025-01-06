@@ -8,7 +8,7 @@ follow_client::follow_client() : Node("follow_client")
   auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
 
   // set Kmax
-  this->Kmax_ = 1.0;
+  this->Kmax_ = 0.1;
 
   // get the name of robot
   this->declare_parameter<std::vector<std::string>>("init_names", {});
@@ -108,7 +108,7 @@ follow_client::follow_client() : Node("follow_client")
 void follow_client::position_callback(const std::string name, const PoseWithCovarianceStamped::SharedPtr msg)
 {
   this->shelfino_pose = msg->pose.pose;                             // store shelfino pose[x,y] in shelfino_pose
-  this->robot_poses_.emplace_back(*msg);                            // an vector of shelfinos' poses
+  this->robot_poses_[name] = *msg;                            // an vector of shelfinos' poses
   RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
 }
 
@@ -123,6 +123,7 @@ void follow_client::handle_gate_pose(const PoseArray::SharedPtr msg)
   for (size_t i=0; i<msg->poses.size(); i++){
     double yaw = get_yaw_from_q(msg->poses[i].orientation);
     RCLCPP_INFO(this->get_logger(), "%ld pose: x=%f, y=%f, th=%f", i, msg->poses[i].position.x, msg->poses[i].position.y, yaw);
+    this->goal_yaw = yaw;
   }                                                                // get gates yaw[x,y,yaw]
 
   this->gate_pose_ready = true;
@@ -159,45 +160,74 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
     const auto &global_path = request->paths.paths[robot_idx];
     RCLCPP_INFO(this->get_logger(), "here1");
     if(!global_path.poses.empty()){
-      const auto &poses = global_path.poses;    
+      const auto &poses = global_path.poses;
       RCLCPP_INFO(this->get_logger(), "here2");
 
       if (poses.size()<2){
         RCLCPP_INFO(this->get_logger(),"Global Path has less than 2 points");
       }
 
-    RCLCPP_INFO(this->get_logger(), "here3");
+      RCLCPP_INFO(this->get_logger(), "here3");
+
+      float th_start = get_yaw_from_q(this->robot_poses_[robot_name].pose.pose.orientation);
+      float th_goal = this->goal_yaw;
+      int k = 360;
+
+      std::map<int, float> thetas;
+      std::map<int, DubinsCurve> curves;
+      thetas[0] = th_start;
+      thetas[poses.size() -1] = th_goal;
+
+      for (unsigned j = poses.size() - 2; j > 0; j--) {
+
+        float best_length = INFINITY;
+        float best_err = INFINITY;
+        int best_k = -1;
+        RCLCPP_INFO(this->get_logger(), "j: %u", j);
+
+        for (int alpha = 0; alpha < k; ++alpha) {
+          // RCLCPP_INFO(this->get_logger(), "x: %f", poses[j].pose.position.x);
+          // RCLCPP_INFO(this->get_logger(), "y: %f", poses[j].pose.position.y);
+          // RCLCPP_INFO(this->get_logger(), "2pialpha: %f", (M_2_PI * alpha / k));
+          // RCLCPP_INFO(this->get_logger(), "x j+1: %f", poses[j+1].pose.position.x);
+          // RCLCPP_INFO(this->get_logger(), "y j+1: %f", poses[j+1].pose.position.y);
+          // RCLCPP_INFO(this->get_logger(), "thetaj+1: %f", thetas[j+1]);
+          // RCLCPP_INFO(this->get_logger(), "kmax: %f", Kmax_);
+
+          DubinsCurve curve = Dubins::dubinsShortestPath(poses[j].pose.position.x,poses[j].pose.position.y, (M_2_PI * alpha / k),
+                                                         poses[j+1].pose.position.x, poses[j+1].pose.position.y, thetas[j+1], Kmax_);
+
+
+          if (curve.L < best_length && std::abs(curve.a3.xf - poses[j+1].pose.position.x) + std::abs(curve.a3.yf - poses[j+1].pose.position.y) < best_err) {
+          //  RCLCPP_INFO(this->get_logger(), "alpha: %i", alpha);
+
+            curves[j] = curve;
+            best_k = alpha;
+            best_length = curve.L;
+            best_err = std::abs(curve.a3.xf - poses[j+1].pose.position.x) + std::abs(curve.a3.yf - poses[j+1].pose.position.y);
+          }
+        }
+        RCLCPP_INFO(this->get_logger(), "x0: %f, y0: %f, xf: %f, yf: %f", curves[j].a1.x0, curves[j].a1.y0, curves[j].a3.xf, curves[j].a3.yf);
+
+        thetas[j] = M_2_PI * best_k / k;
+      }
+
+      DubinsCurve curve = Dubins::dubinsShortestPath(poses[0].pose.position.x,poses[0].pose.position.y, thetas[0],
+                                                         poses[1].pose.position.x, poses[1].pose.position.y, thetas[1], Kmax_);
+      curves[0] = curve;
 
 
       Path dubins_path;
       dubins_path.header.frame_id = "map";
       dubins_path.header.stamp = rclcpp::Clock().now();
 
-    RCLCPP_INFO(this->get_logger(), "here4");
+      RCLCPP_INFO(this->get_logger(), "here4");
 
-
-      // iterate all points in the global path
-      for (size_t i = 0; i < poses.size() -1; ++i){
-         RCLCPP_INFO(this->get_logger(), "here5");
-
-        const auto &start_pose = poses[i].pose;
-        const auto &goal_pose  = poses[i+1].pose;
-
-        double x0 = start_pose.position.x;
-        double y0 = start_pose.position.y;
-        double th0 = get_yaw_from_q(start_pose.orientation);
-
-        double xf = start_pose.position.x;
-        double yf = start_pose.position.y;
-        double thf = get_yaw_from_q(start_pose.orientation);    
-
-        // call dubinShortestPath function in dubins.cpp
-        DubinsCurve curve = Dubins::dubinsShortestPath(x0,y0,th0,xf,yf,thf,Kmax_);
-
-        // Discrete dubins curve into path points
-        constexpr int num_samples = 50;                  // sample numbers
+      for (unsigned i = 0; i < curves.size(); ++i) {
+        constexpr int num_samples = 15; // sample numbers
         for (int j = 0; j< num_samples; ++j){
-          double s = curve.L * j/ num_samples;
+          DubinsCurve curve = curves[i];
+          double s = curve.L * ((double)(j + 1)/(double)num_samples);
           double x, y, th;
           if (s <= curve.a1.L){
             std::tie(x,y,th) = computeArcPoint(s,curve.a1);
@@ -208,6 +238,7 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
           else{
             std::tie(x,y,th) = computeArcPoint(s - curve.a1.L,curve.a3);        
           }
+          // RCLCPP_INFO(this->get_logger(), "sample: %i - s: %f - x: %f, y: %f - L: %f", j, s, (float)x, (float)y, (float)curve.L);
 
           // Add points into path
           geometry_msgs::msg::PoseStamped pose_stamped;
@@ -217,8 +248,58 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
           pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,sin(th/2),cos(th/2)));
           dubins_path.poses.push_back(pose_stamped);
         } // END: discretion of one arc dubins path
+      }
+
+
+      // iterate all points in the global path
+      // for (size_t i = 0; i < poses.size() -1; ++i){
+      //    RCLCPP_INFO(this->get_logger(), "here5");
+
+      //   const auto &start_pose = poses[i].pose;
+      //   const auto &goal_pose  = poses[i+1].pose;
+
+      //   double x0 = start_pose.position.x;
+      //   double y0 = start_pose.position.y;
+      //   double th0 = get_yaw_from_q(start_pose.orientation);
+
+      //   double xf = goal_pose.position.x;
+      //   double yf = goal_pose.position.y;
+      //   double thf = get_yaw_from_q(goal_pose.orientation);    
+
+      //   // RCLCPP_INFO(this->get_logger(), "x0: %f, y0: %f, xf: %f, yf: %f", x0, y0, xf, yf);
+
+      //   // call dubinShortestPath function in dubins.cpp
+      //   DubinsCurve curve = Dubins::dubinsShortestPath(x0,y0,th0,xf,yf,thf,Kmax_);
+
+      //   // RCLCPP_INFO(this->get_logger(), "Lenght: %f", curve.L);
+
+
+      //   // Discrete dubins curve into path points
+      //   constexpr int num_samples = 15; // sample numbers
+      //   for (int j = 0; j< num_samples; ++j){
+      //     double s = curve.L * ((double)(j + 1)/(double)num_samples);
+      //     double x, y, th;
+      //     if (s <= curve.a1.L){
+      //       std::tie(x,y,th) = computeArcPoint(s,curve.a1);
+      //     }
+      //     else if( s <= curve.a1.L + curve.a2.L){
+      //       std::tie(x,y,th) = computeArcPoint(s - curve.a1.L,curve.a2);
+      //     }
+      //     else{
+      //       std::tie(x,y,th) = computeArcPoint(s - curve.a1.L,curve.a3);        
+      //     }
+      //     // RCLCPP_INFO(this->get_logger(), "sample: %i - s: %f - x: %f, y: %f - L: %f", j, s, (float)x, (float)y, (float)curve.L);
+
+      //     // Add points into path
+      //     geometry_msgs::msg::PoseStamped pose_stamped;
+      //     pose_stamped.header = global_path.header;
+      //     pose_stamped.pose.position.x = x;
+      //     pose_stamped.pose.position.y = y;
+      //     pose_stamped.pose.orientation = tf2::toMsg(tf2::Quaternion(0,0,sin(th/2),cos(th/2)));
+      //     dubins_path.poses.push_back(pose_stamped);
+      //   } // END: discretion of one arc dubins path
           
-      }// END: iteration global path
+      // }// END: iteration global path
     RCLCPP_INFO(this->get_logger(), "here6");
 
     for (auto pose : dubins_path.poses) {
@@ -230,22 +311,22 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
     // Path path;
     // path.header.frame_id = "map";
     // path.header.stamp = rclcpp::Clock().now();
-// 
+
     // tf2::Quaternion q;
-    // q.setRPY( 0, 0, -1.507);
-// 
-    // for (float i = 1.95; i > -1.0; i-=0.05) {
-      // geometry_msgs::msg::PoseStamped pose;
-      // pose.pose.position.x = i;
-      // pose.pose.position.y = 5.0;
-      // pose.pose.position.z = 0.0;
-      // pose.pose.orientation = tf2::toMsg(q);
-// 
-      // path.poses.push_back(pose);
+    // q.setRPY( 0, 0, 0);
+
+    // for (float i = 5.0; i > 1.0; i-=0.05) {
+    //   geometry_msgs::msg::PoseStamped pose;
+    //   pose.pose.position.x = 2.0;
+    //   pose.pose.position.y = i;
+    //   pose.pose.position.z = 0.0;
+    //   pose.pose.orientation = tf2::toMsg(q);
+
+    //   path.poses.push_back(pose);
     // }
 
       //call move function to activate the action server: follow path
-      // this->move(robot_name, path);
+      this->move(robot_name, dubins_path);
 
     }
 

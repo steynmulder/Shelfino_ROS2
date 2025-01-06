@@ -117,8 +117,6 @@ class AStarPlanner : public rclcpp::Node {
 					path_array.names.push_back(it->first);
 				}
 
-				exit(0);
-
 				// TODO call follow_path client with path_array
 				if (!move_robots_client_->wait_for_service(std::chrono::seconds(5))) {
 					RCLCPP_ERROR(this->get_logger(), "Cannot call move_robots service after waiting 5 seconds");
@@ -126,6 +124,7 @@ class AStarPlanner : public rclcpp::Node {
 				}
 				auto move_robots_request = std::make_shared<path_interface::srv::MoveRobots::Request>();
 				move_robots_request->paths = path_array;
+				
 				move_robots_client_->async_send_request(move_robots_request);
 				complete = true;
 				

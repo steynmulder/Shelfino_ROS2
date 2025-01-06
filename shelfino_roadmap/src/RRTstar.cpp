@@ -3,26 +3,27 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <map>
 #include "Dubins.h"
 
 
-class RRTstar {
-public:
-    RRTstar(Graph* graph, double step_size, double search_radius)
-        : graph(graph), step_size(step_size), search_radius(search_radius) {}
+// class RRTstar {
+// public:
+//     RRTstar(Graph* graph, double step_size, double search_radius)
+//         : graph(graph), step_size(step_size), search_radius(search_radius) {}
 
-    std::vector<id_t> findPath(double start_x, double start_y, double goal_x, double goal_y);
+//     std::vector<id_t> findPath(double start_x, double start_y, double goal_x, double goal_y);
 
-private:
-    Graph* graph;
+// private:
+    RRTstar::Graph* graph;
     double step_size;
     double search_radius;
 
-    // MULTI AGENT
-    void resolveConflict(size_t t, id_t conflict_id, id_t end_id, vector<string>& names, map<string, vector<id_t>>& paths, map<id_t, GVertex>& graph);
-    map<string, vector<id_t>> generatePaths(const vector<id_t> start_ids, const vector<string> names, const id_t end_id, map<id_t, GVertex>& graph) {
+//     // MULTI AGENT
+//     void resolveConflict(size_t t, id_t conflict_id, id_t end_id, vector<string>& names, map<string, vector<id_t>>& paths, map<id_t, GVertex>& graph);
+//     map<string, vector<id_t>> generatePaths(const vector<id_t> start_ids, const vector<string> names, const id_t end_id, map<id_t, GVertex>& graph) {
 
-};
+// };
 
 // Main RRT* pathfinding function
 std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_x, double goal_y) {
@@ -72,14 +73,14 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
     std::reverse(path.begin(), path.end());
     return path;
 }
-}
+// }
 
 // NEAREST NODE 
-Node* RRTstar::nearestNode(const std::vector<Node*>& tree, double x, double y) {
-    Node* nearest = nullptr;
+RRTstar::Node* RRTstar::nearestNode(const std::vector<RRTstar::Node*>& tree, double x, double y) {
+    RRTstar::Node* nearest = nullptr;
     double min_distance = std::numeric_limits<double>::max();
 
-    for (Node* node : tree) {
+    for (RRTstar::Node* node : tree) {
         double distance = euclideanDistance(node->x, node->y, x, y);
         if (distance < min_distance) {
             min_distance = distance;
@@ -90,9 +91,9 @@ Node* RRTstar::nearestNode(const std::vector<Node*>& tree, double x, double y) {
 }
 
 // NEAR NODE
-std::vector<Node*> RRTstar::nearNodes(const std::vector<Node*>& tree, double x, double y) {
-    std::vector<Node*> near_nodes;
-    for (Node* node : tree) {
+std::vector<RRTstar::Node*> RRTstar::nearNodes(const std::vector<RRTstar::Node*>& tree, double x, double y) {
+    std::vector<RRTstar::Node*> near_nodes;
+    for (RRTstar::Node* node : tree) {
         if (euclideanDistance(node->x, node->y, x, y) <= search_radius) {
             near_nodes.push_back(node);
         }
@@ -106,11 +107,11 @@ bool RRTstar::isCollisionFree(double x1, double y1, double x2, double y2) {
     double dx = abs(x1-x2);
     double dy = abs(y1-y2);
     double distance = euclideanDistance(x1,y1,x2,y2);
-    int steps = static_cast<int><(distance / step_size);
+    int steps = static_cast<int>(distance / step_size);
 
     for (int i = 0; i <= steps; ++i){
-        double xi = x1 + i * step_size(dx/distance);
-        double yi = y1 + i * step_size(dy/distance);
+        double xi = x1 + i * step_size * (dx/distance);
+        double yi = y1 + i * step_size * (dy/distance);
 
         for (const auto& obstacle : graph->obstacles){
             // CHECK 1: for cylinder
@@ -144,8 +145,8 @@ double RRTstar::euclideanDistance(double x1, double y1, double x2, double y2) {
 }
 
 // REWIRE
-void RRTstar::rewire(std::vector<Node*>& tree, Node* new_node, const std::vector<Node*>& near_nodes) {
-    for (Node* near_node : near_nodes) {
+void RRTstar::rewire(std::vector<RRTstar::Node*>& tree, RRTstar::Node* new_node, const std::vector<RRTstar::Node*>& near_nodes) {
+    for (RRTstar::Node* near_node : near_nodes) {
         double new_cost = new_node->cost + euclideanDistance(new_node->x, new_node->y, near_node->x, near_node->y);
         if (new_cost < near_node->cost) {
             near_node->parent = new_node;
@@ -158,9 +159,9 @@ void RRTstar::rewire(std::vector<Node*>& tree, Node* new_node, const std::vector
 
 
 // MULTI AGENT PART
-map<id_t, vector<string>> getConflicts(vector<pair<string, id_t>>& positions) {
-	map<id_t, vector<string>> conflicting_names;
-	for (pair<string, id_t> position : positions) {
+std::map<id_t, std::vector<std::string>> getConflicts(std::vector<std::pair<std::string, id_t>>& positions) {
+	std::map<id_t, std::vector<std::string>> conflicting_names;
+	for (std::pair<std::string, id_t> position : positions) {
 		conflicting_names[position.second].push_back(position.first);
 	}
 
@@ -174,63 +175,63 @@ map<id_t, vector<string>> getConflicts(vector<pair<string, id_t>>& positions) {
 }
 
 
-void RRTstar::resolveConflict(size_t t, id_t conflict_id, id_t end_id, vector<string>& names, map<string, vector<id_t>>& paths, map<id_t, GVertex>& graph) {
-	vector<id_t> chosen_ids;
-	chosen_ids.push_back(conflict_id);
-	for (size_t i = 1; i < names.size(); ++i) { // leave the first element as is
-		id_t previous_id = paths[names[i]][t - 1];
-		GVertex previous_vertex = graph[previous_id];
-		list<id_t> options = previous_vertex.getDestinationsList();
-		for (id_t option : options) {
-			if (find(chosen_ids.begin(), chosen_ids.end(), option) == chosen_ids.end() &&
-				find(chosen_ids.begin(), chosen_ids.begin() + (t-1), option) != chosen_ids.begin() + (t-1)) {
-				vector<id_t> subpath = Astar::findPath(option, end_id, graph);
-				paths[names[i]].resize(paths[names[i]].size() - (t - 1));
-				paths[names[i]].insert(paths[names[i]].end(), subpath.begin(), subpath.end());
-				chosen_ids.push_back(option);
-				break;
-			}
-		}
-	}
-}
+// void RRTstar::resolveConflict(size_t t, id_t conflict_id, id_t end_id, std::vector<std::string>& names, std::map<std::string, std::vector<id_t>>& paths, std::map<id_t, GVertex>& graph) {
+// 	std::vector<id_t> chosen_ids;
+// 	chosen_ids.push_back(conflict_id);
+// 	for (size_t i = 1; i < names.size(); ++i) { // leave the first element as is
+// 		id_t previous_id = paths[names[i]][t - 1];
+// 		GVertex previous_vertex = graph[previous_id];
+// 		std::list<id_t> options = previous_vertex.getDestinationsList();
+// 		for (id_t option : options) {
+// 			if (find(chosen_ids.begin(), chosen_ids.end(), option) == chosen_ids.end() &&
+// 				find(chosen_ids.begin(), chosen_ids.begin() + (t-1), option) != chosen_ids.begin() + (t-1)) {
+// 				std::vector<id_t> subpath = Astar::findPath(option, end_id, graph);
+// 				paths[names[i]].resize(paths[names[i]].size() - (t - 1));
+// 				paths[names[i]].insert(paths[names[i]].end(), subpath.begin(), subpath.end());
+// 				chosen_ids.push_back(option);
+// 				break;
+// 			}
+// 		}
+// 	}
+// }
 
-map<string, vector<id_t>> RRTstar::generatePaths(const vector<id_t> start_ids, const vector<string> names, const id_t end_id, map<id_t, GVertex>& graph) {
-	vector<vector<pair<string, id_t>>> positions_time;
-	map<string, vector<id_t>> paths;
-	for (size_t robot_id = 0; robot_id < names.size(); ++robot_id) {
-		vector<id_t> path = Astar::findPath(start_ids[robot_id], end_id, graph);
-		vector<pair<string, id_t>> positions;
-		paths[names[robot_id]] = path;
-		for (size_t t = 0; t < path.size(); ++t) { // for each time step ~= each vertex visited
-			positions.push_back(make_pair(names[robot_id], path[t]));
-		}
-		positions_time.push_back(positions);
-	}
+// std::map<std::string, std::vector<id_t>> RRTstar::generatePaths(const std::vector<id_t> start_ids, const std::vector<std::string> names, const id_t end_id, std::map<id_t, GVertex>& graph) {
+// 	std::vector<std::vector<std::pair<std::string, id_t>>> positions_time;
+// 	std::map<std::string, std::vector<id_t>> paths;
+// 	for (size_t robot_id = 0; robot_id < names.size(); ++robot_id) {
+// 		std::vector<id_t> path = Astar::findPath(start_ids[robot_id], end_id, graph);
+// 		std::vector<std::pair<std::string, id_t>> positions;
+// 		paths[names[robot_id]] = path;
+// 		for (size_t t = 0; t < path.size(); ++t) { // for each time step ~= each vertex visited
+// 			positions.push_back(make_pair(names[robot_id], path[t]));
+// 		}
+// 		positions_time.push_back(positions);
+// 	}
 
-	if (names.size() > 1) {
-		bool conflict = true;
-		int iterations = 0;
+// 	if (names.size() > 1) {
+// 		bool conflict = true;
+// 		int iterations = 0;
 
-		while (conflict && iterations < MAX_ITERATIONS) {
-			conflict = false;
-			for (size_t t = 1; t < positions_time.size() - 1; ++t) { // ASSUMPTION: the robots do not start in the same node & they can be on the goal together
-				// make vector of vectors of all (name, id)s that are conflicting in this time step
-				map<id_t, vector<string>> conflicts = getConflicts(positions_time[t]);
+// 		while (conflict && iterations < MAX_ITERATIONS) {
+// 			conflict = false;
+// 			for (size_t t = 1; t < positions_time.size() - 1; ++t) { // ASSUMPTION: the robots do not start in the same node & they can be on the goal together
+// 				// make vector of vectors of all (name, id)s that are conflicting in this time step
+// 				std::map<id_t, std::vector<std::string>> conflicts = getConflicts(positions_time[t]);
 
-				if (!conflicts.empty()) {
-					// resolve conflicts
-					resolveConflict(t, conflicts.begin()->first, end_id, conflicts.begin()->second, paths, graph);
+// 				if (!conflicts.empty()) {
+// 					// resolve conflicts
+// 					resolveConflict(t, conflicts.begin()->first, end_id, conflicts.begin()->second, paths, graph);
 
 
-					conflict = true;
-					break; // start from beginning with resolving conflicts
-				}
-			}
-			++iterations;
-		}
-	}
+// 					conflict = true;
+// 					break; // start from beginning with resolving conflicts
+// 				}
+// 			}
+// 			++iterations;
+// 		}
+// 	}
 
 	
 
-	return paths;
-}
+// 	return paths;
+// }

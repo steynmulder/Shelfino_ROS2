@@ -88,7 +88,8 @@ private:
   bool gate_pose_ready = false;
 
   Pose shelfino_pose;
-  std::vector<PoseWithCovarianceStamped> robot_poses_;
+  std::map<std::string, PoseWithCovarianceStamped> robot_poses_;
+  float goal_yaw;
   PathArray global_paths_;
   bool global_path_received = false;
 

@@ -13,66 +13,9 @@
 
 bool complete = false;
 
-struct Obstacle {
-	bool is_cylinder;
-	double x,y;
-	double radius;
-	double length_vertice;
-	std::vector<std::pair<double,double>> vertices;	
-};
-
-struct Graph{
-	std::vector<Obstacle> obstacles;
-    std::vector<Point> borders;	
-	double getWidth() const { return getWidthEnd - getWidthStart};
-	double getHeight() const { return getHeightEnd - getHeightStart };
-
-	double getWidthStart()const{
-		double min_x = borders[0].x;
-		for(const auto& p: borders){
-			if(p.x < min_x) min_x = p.x;
-		}
-		return min_x;
-	}
-
-	double getWidthEnd()const{
-		double max_x = borders[0].x;
-		for(const auto& p: borders){
-			if(p.x > max_x) max_x = p.x;
-		}
-		return max_x;
-	}
-
-	double getHeightStart()const{
-		double min_y = borders[0].y;
-		for(const auto& p: borders){
-			if(p.y < min_y) min_y = p.y;
-		}
-		return min_y;
-	}
-
-	double getHeightEnd()const{
-		double max_y = borders[0].y;
-		for(const auto& p: borders){
-			if(p.y > max_y) max_y = p.y;
-		}
-		return max_y;
-	}
-
-}
-
-struct Point {
-	float x, y;
-	Point() = default;
-	Point(float _x, float _y) : x(_x), y(_y) {}
-	bool operator==(const Point &other) const
-	{ return (x == other.x&& y == other.y);}
-};
-
-
-Graph graph;
+RRTstar::Graph graph;
 geometry_msgs::msg::Pose start_pose;
-std::vector<Point> goal;
+std::vector<RRTstar::Point> goal;
 
 
 class RRTStarPlanner : public rclcpp::Node {
@@ -81,7 +24,59 @@ class RRTStarPlanner : public rclcpp::Node {
 			// subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
 			// 	"/shelfino1/amcl_pose", qos, bind(&AStarPlanner::position_callback, this, std::placeholders::_1));
 
-		}
+			static const rmw_qos_profile_t rmw_qos_profile_custom =
+			{
+				RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+				100,
+				RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+				RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL,
+				RMW_QOS_DEADLINE_DEFAULT,
+				RMW_QOS_LIFESPAN_DEFAULT,
+				RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
+				RMW_QOS_LIVELINESS_LEASE_DURATION_DEFAULT,
+				false
+			};
+
+			this->declare_parameter<std::vector<std::string>>("init_names", {});
+  			auto robot_names = this->get_parameter("init_names").as_string_array();
+			auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
+
+
+			if (robot_names.empty())
+			{
+				RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
+				return;
+			}
+
+			for (const auto &robot_name : robot_names)
+			{
+				std::string topic_name = "/" + robot_name + "/amcl_pose";
+
+
+				RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
+				
+				auto callback = [this, robot_name](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+					this->position_callback(robot_name, msg);
+				};
+
+				robot_position_subscribers_.emplace_back(
+					this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+						topic_name, qos, callback));
+			}
+
+			
+
+			// obstacles and boders
+			subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
+				"/obstacles", qos, bind(&RRTStarPlanner::obstacles_callback, this, std::placeholders::_1));
+
+			subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
+				"/map_borders", qos, bind(&RRTStarPlanner::borders_callback, this, std::placeholders::_1));
+
+			subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
+				"/gates", qos, bind(&RRTStarPlanner::gates_callback, this, std::placeholders::_1));		
+
+			}
 
 		// shelfino#/initialpose? 
 		// !TODO: this topic needs to be modfified!
@@ -89,48 +84,16 @@ class RRTStarPlanner : public rclcpp::Node {
         //     "/amcl_pose", qos, std::bind(&RRTStarPlanner::position_callback, this, std::placeholders::_1));
 
 		// Create a callback group
-		auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+		// auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 		// auto global_path_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-		rclcpp::SubscriptionOptions amcl_pose_options;
-		amcl_pose_options.callback_group = amcl_pose_cb_group;
+		// rclcpp::SubscriptionOptions amcl_pose_options;
+		// amcl_pose_options.callback_group = amcl_pose_cb_group;
 
 		// rclcpp::SubscriptionOptions global_path_options;
 		// global_path_options.callback_group = global_path_cb_group;  
 
-		if (robot_names.empty())
-		{
-			RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
-			return;
-		}
-
-		for (const auto &robot_name : robot_names)
-		{
-			std::string topic_name = "/" + robot_name + "/amcl_pose";
-
-
-			RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
-			
-			auto callback = [this, robot_name](const PoseWithCovarianceStamped::SharedPtr msg) {
-				this->position_callback(robot_name, msg);
-			};
-
-			robot_position_subscribers_.emplace_back(
-				this->create_subscription<PoseWithCovarianceStamped>(
-					topic_name, qos, callback, amcl_pose_options));
-		}
-
 		
-
-		// obstacles and boders
-        subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
-            "/obstacles", qos, bind(&RRTStarPlanner::obstacles_callback, this, _1));
-
-        subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
-            "/map_borders", qos, bind(&RRTStarPlanner::borders_callback, this, _1));
-
-        subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
-            "/gates", qos, bind(&RRTStarPlanner::gates_callback, this, _1));		
 		
 
         void getPath() {		
@@ -166,17 +129,17 @@ class RRTStarPlanner : public rclcpp::Node {
        
 
     private:
-	  	std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr> robot_position_subscribers_;
+	  	std::vector<rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr> robot_position_subscribers_;
 		//rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
-		rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
-  		rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
-		rclcpp::Subscription<Polygon>::SharedPtr subscription_gates_;	
+		rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
+  		rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription_borders_;
+		rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription_gates_;	
 		rclcpp::Client<path_interface::srv::MoveRobots>::SharedPtr move_robots_client_;
 
 
 
 		// ROBOTS' NAME
-		void position_callback(const std::string name, const PoseWithCovarianceStamped::SharedPtr msg)
+		void position_callback(const std::string name, const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
 		{
 		this->shelfino_pose = msg->pose.pose;                             // store shelfino pose[x,y] in shelfino_pose
 		this->robot_poses_.emplace_back(*msg);                            // an vector of shelfinos' poses

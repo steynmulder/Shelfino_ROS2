@@ -5,6 +5,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 #include "rclcpp/rclcpp.hpp"
 #include "std_srvs/srv/empty.hpp"
 #include "std_msgs/msg/bool.hpp"
@@ -44,6 +45,8 @@ struct DubinsArc {
         yf = y0 + L * sinc(s) * sin(th0 + s);
         thf = mod2pi(th0 + k * L);
     }
+
+    DubinsArc() : x0(0), y0(0), th0(0), k(0), L(0) {}
 };
 
 struct DubinsCurve {
@@ -52,6 +55,8 @@ struct DubinsCurve {
 
     DubinsCurve(DubinsArc a1, DubinsArc a2, DubinsArc a3)
         : a1(a1), a2(a2), a3(a3), L(a1.L + a2.L + a3.L) {}
+    
+    DubinsCurve() : a1(0, 0, 0, 0, 0), a2(0, 0, 0, 0, 0), a3(0, 0, 0, 0, 0) {}
 };
 
 DubinsCurve dubinsShortestPath(double x0, double y0, double th0, double xf, double yf, double thf, double Kmax);

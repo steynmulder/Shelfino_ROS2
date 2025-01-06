@@ -28,6 +28,8 @@ using namespace std;
 int numberRobots;
 
 constexpr float MIN_LENGTH = 0.5;
+constexpr float MAX_LENGTH = 2.0;
+constexpr float NEIGHBOR_RADIUS = 1.0;
 
 class RoadmapServer : public rclcpp::Node
 {
@@ -48,41 +50,41 @@ class RoadmapServer : public rclcpp::Node
             false
         };
         auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_custom);
-        // subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
-        //     "/obstacles", qos, bind(&RoadmapServer::obstacles_callback, this, _1));
-        // subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
-        //     "/map_borders", qos, bind(&RoadmapServer::borders_callback, this, _1));
-        // subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
-        //     "/gates", qos, bind(&RoadmapServer::gates_callback, this, _1));
+        subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
+            "/obstacles", qos, bind(&RoadmapServer::obstacles_callback, this, _1));
+        subscription_borders_ = this->create_subscription<geometry_msgs::msg::Polygon>(
+            "/map_borders", qos, bind(&RoadmapServer::borders_callback, this, _1));
+        subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
+            "/gates", qos, bind(&RoadmapServer::gates_callback, this, _1));
         service_ = this->create_service<path_interface::srv::GenerateGraph>(
             "generate_graph", std::bind(&RoadmapServer::generateGraph, this, std::placeholders::_1, std::placeholders::_2));
 
 
-        // this->declare_parameter<std::vector<std::string>>("init_names", {});
-        // auto robot_names = this->get_parameter("init_names").as_string_array();
+        this->declare_parameter<std::vector<std::string>>("init_names", {});
+        auto robot_names = this->get_parameter("init_names").as_string_array();
 
-        // if (robot_names.empty())
-        // {
-        //     RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
-        //     return;
-        // }
-
-
-        // for (const auto &robot_name : robot_names)
-        // {
-        //     std::string topic_name = "/" + robot_name + "/amcl_pose";
-
-        //     RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
-
-        //     auto callback = [this, robot_name](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-        //         this->position_callback(robot_name, msg);
-        //     };
+        if (robot_names.empty())
+        {
+            RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
+            return;
+        }
 
 
-        //     robot_position_subscribers_.emplace_back(
-        //         this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-        //             topic_name, qos, callback));
-        // }
+        for (const auto &robot_name : robot_names)
+        {
+            std::string topic_name = "/" + robot_name + "/amcl_pose";
+
+            RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
+
+            auto callback = [this, robot_name](const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+                this->position_callback(robot_name, msg);
+            };
+
+
+            robot_position_subscribers_.emplace_back(
+                this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+                    topic_name, qos, callback));
+        }
     }
 
   private:
@@ -91,6 +93,7 @@ class RoadmapServer : public rclcpp::Node
     typedef boost::geometry::model::point<float, 2, boost::geometry::cs::cartesian> point_t;
     typedef boost::geometry::model::polygon<point_t> polygon_t;
     typedef boost::geometry::model::box<point_t> rect_t;
+    typedef boost::geometry::model::linestring<point_t> line_t;
 
     id_t id = 0;
 
@@ -129,7 +132,10 @@ class RoadmapServer : public rclcpp::Node
         QuadNode(float _x, float _y, float _size, STATUS _status) : x(_x), y(_y), size(_size), status(_status) {}
 
         bool operator!=(const QuadNode &other) const {
-            return (x != other.x || y != other.y);
+            return (id != other.id || x != other.x || y != other.y);
+        }
+        bool operator==(const QuadNode& other) const {
+            return (id == other.id && x == other.x && y == other.y);
         }
     };
 
@@ -231,7 +237,7 @@ class RoadmapServer : public rclcpp::Node
     }
 
     bool pointInRadius(Point& p, float radius, Point& center) {
-        return sqrt(pow(p.x - center.x, 2) + pow(p.y - center.y, 2)) <= radius;
+        return sqrt(powf(p.x - center.x, 2) + powf(p.y - center.y, 2)) <= radius;
     }
 
     bool nodeInRadius(QuadNode& node, float radius, Point& center) {
@@ -401,7 +407,7 @@ class RoadmapServer : public rclcpp::Node
     }
 
     float euclidianDistance(QuadNode& n1, QuadNode& n2) {
-        return sqrt(pow(n1.x - n2.x, 2) + pow(n1.y - n2.y, 2));
+        return sqrt(powf(n1.x - n2.x, 2) + powf(n1.y - n2.y, 2));
     }
 
     vector<QuadNode> getNeighbors(QuadNode& node) {
@@ -447,6 +453,60 @@ class RoadmapServer : public rclcpp::Node
         return result;
     }
 
+    bool freeLine(Point p, Point v) {
+        line_t line;
+        line.push_back(point_t(p.x, p.y));
+        line.push_back(point_t(v.x, v.y));
+
+        for (auto& obs : obstacle_vertices) {
+            polygon_t poly;
+        
+            for (Point& point : obs) {
+                boost::geometry::append(poly.outer(), point_t(point.x, point.y));
+            }
+            boost::geometry::append(poly.outer(), point_t(obs[0].x, obs[0].y)); // close loop
+
+            if (boost::geometry::intersects(line, poly)) {
+                return false;
+            }
+        }
+
+        for (auto& cyl : cylinder_obstacles) {
+            const int circle_point_density = 36;
+            boost::geometry::strategy::buffer::distance_symmetric<double> distance_strategy(cyl.first);
+            boost::geometry::strategy::buffer::side_straight side_strategy;
+            boost::geometry::strategy::buffer::join_round join_strategy(circle_point_density);
+            boost::geometry::strategy::buffer::end_round end_strategy(circle_point_density);
+            boost::geometry::strategy::buffer::point_circle circle_strategy(circle_point_density);
+
+            boost::geometry::model::multi_polygon<polygon_t> circle_polygon;
+
+            point_t center_point(cyl.second.x, cyl.second.y);
+
+            boost::geometry::buffer(center_point, circle_polygon, distance_strategy, side_strategy, join_strategy, end_strategy, circle_strategy);
+
+            if (boost::geometry::intersects(line, circle_polygon)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    vector<id_t> getCloseVertices(Point& p) {
+        vector<id_t> close_vertices;
+
+        for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+            Point v(it->second.getx(), it->second.gety());
+            if (sqrt(powf(p.x - it->second.getx(), 2) + powf(p.y - it->second.gety(), 2)) < NEIGHBOR_RADIUS && freeLine(p, v)) {
+                close_vertices.push_back(it->first);
+            }
+        }
+
+        return close_vertices;
+    }
+
+
     void buildVertices(QuadNode& node) {
 
         if (node.status == FREE) {
@@ -474,6 +534,16 @@ class RoadmapServer : public rclcpp::Node
                 vertices[node.id].addEdge(neighbor.id, euclidianDistance(node, neighbor), "");
                 generated_edges.push_back(make_pair(node, neighbor));
             }
+            for (QuadNode& n : quads) {
+                Point p(node.x, node.y), q(n.x, n.y);
+                if (n.id != node.id && 
+                    find(neighbors.begin(), neighbors.end(), n) == neighbors.end() &&
+                    euclidianDistance(node, n) < NEIGHBOR_RADIUS && 
+                    freeLine(p, q)) {
+                    vertices[node.id].addEdge(n.id, euclidianDistance(node, n), "");
+                    generated_edges.push_back(make_pair(node, n));
+                }
+            }
             return;
         }
 
@@ -491,12 +561,12 @@ class RoadmapServer : public rclcpp::Node
             if (node.status == FREE) {
                 if (closestDistance == INFINITY) {
                     closest = vertices[node.id];
-                    closestDistance = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                    closestDistance = sqrt(powf(p.x - node.x, 2) + powf(p.y - node.y, 2));
                     continue;
                 }
 
                 GVertex vert = vertices[node.id];
-                float dist = sqrt(pow(p.x - node.x, 2) + pow(p.y - node.y, 2));
+                float dist = sqrt(powf(p.x - node.x, 2) + powf(p.y - node.y, 2));
                 if (closestDistance > dist) {
                     closest = vert;
                     closestDistance = dist;
@@ -538,67 +608,125 @@ class RoadmapServer : public rclcpp::Node
         }
 
     }
+
+    vector<pair<id_t, string>> addStart() {
+        vector<pair<id_t, string>> start_ids;
+        for (auto it = robot_positions.begin(); it != robot_positions.end(); ++it) {
+            // GVertex v = {id, "", it->second.x, it->second.y, 0.0};
+            start_ids.push_back(make_pair(id, it->first));
+            Point pv(it->second.x, it->second.y);
+            // RCLCPP_INFO(this->get_logger(), "adding edge");
+            // id_t closest = getClosestVertex(pv);
+            // v.addEdge(closest, sqrt(pow(it->second.x - vertices[closest].getx(), 2) + pow(it->second.y - vertices[closest].gety(), 2)), "");
+
+            // for (id_t close : getCloseVertices(pv)) {
+            //     RCLCPP_INFO(this->get_logger(), "adding edge: %f, %f", vertices[close].getx(), vertices[close].gety());
+            //     v.addEdge(close, sqrt(pow(it->second.x - vertices[close].getx(), 2) + pow(it->second.y - vertices[close].gety(), 2)), "");
+            // }
+            path_interface::msg::GraphNode n;
+            n.id = id;
+            n.x = it->second.x;
+            n.y = it->second.y;
+            for (id_t close : getCloseVertices(pv)) {
+                // RCLCPP_INFO(this->get_logger(), "adding edge: %f, %f", vertices[close].getx(), vertices[close].gety());
+                n.edges.push_back(close);
+            }
+            
+            nodes.push_back(n);
+            id++;
+
+        }
+
+        return start_ids;
+    }
+
+    vector<id_t> addEnd() {
+        vector<id_t> end_ids;
+        for (Point gate : gates) {
+            // GVertex v = {id, "", gate.x, gate.y, 0.0};
+            end_ids.push_back(id);
+            path_interface::msg::GraphNode g;
+            g.x = gate.x;
+            g.y = gate.y;
+            g.id = id;
+
+            RCLCPP_INFO(this->get_logger(), "Gate pose: x: %f, y: %f", gate.x, gate.y);
+            for (path_interface::msg::GraphNode& n : nodes) {
+                if (sqrt(powf(g.x - n.x, 2) + powf(g.y - n.y, 2)) <= NEIGHBOR_RADIUS) {
+                    RCLCPP_INFO(this->get_logger(), "Added end edge from: x: %f, y: %f", n.x, n.y);
+                    n.edges.push_back(id);
+                }
+                // vertices[close].addEdge(id, sqrt(pow(gate.x - vertices[close].getx(), 2) + pow(gate.y - vertices[close].gety(), 2)), "");
+                
+            }
+            nodes.push_back(g);
+            id++;
+            // vertices[id++] = v;
+        }
+
+        return end_ids;
+    }
     
     void generateGraph(const std::shared_ptr<path_interface::srv::GenerateGraph::Request> request, 
         std::shared_ptr<path_interface::srv::GenerateGraph::Response> response) {
 
-        //TODO remove
-        wall_vertices.push_back(Point(-10, 10));
-        wall_vertices.push_back(Point(-10, -10));
-        wall_vertices.push_back(Point(10, -10));
-        wall_vertices.push_back(Point(10, 10));
+        // //TODO remove
+        // wall_vertices.push_back(Point(-10, 10));
+        // wall_vertices.push_back(Point(-10, -10));
+        // wall_vertices.push_back(Point(10, -10));
+        // wall_vertices.push_back(Point(10, 10));
 
-        for (unsigned i = 0; i < wall_vertices.size(); ++i) {
-            total_edges.push_back(Edge(Point(wall_vertices[i].x, wall_vertices[i].y), Point(wall_vertices[(i+1)%wall_vertices.size()].x, wall_vertices[(i+1)%wall_vertices.size()].y)));
-        }
+        // for (unsigned i = 0; i < wall_vertices.size(); ++i) {
+        //     total_edges.push_back(Edge(Point(wall_vertices[i].x, wall_vertices[i].y), Point(wall_vertices[(i+1)%wall_vertices.size()].x, wall_vertices[(i+1)%wall_vertices.size()].y)));
+        // }
 
-        //TODO remove
-        vector<Point> obs1;
-        obs1.push_back(Point(-9.5, 9.75));
-        obs1.push_back(Point(-9.5, -9.75));
-        obs1.push_back(Point(-5.5, -9.75));
-        obs1.push_back(Point(-5.5, 9.75));
-        obstacle_vertices.push_back(obs1);
+        // //TODO remove
+        // vector<Point> obs1;
+        // obs1.push_back(Point(-9.5, 9.75));
+        // obs1.push_back(Point(-9.5, -9.75));
+        // obs1.push_back(Point(-5.5, -9.75));
+        // obs1.push_back(Point(-5.5, 9.75));
+        // obstacle_vertices.push_back(obs1);
 
-        vector<Point> obs2;
-        obs2.push_back(Point(5.5, 9.75));
-        obs2.push_back(Point(5.5, -9.75));
-        obs2.push_back(Point(9.5, -9.75));
-        obs2.push_back(Point(9.5, 9.75));
-        obstacle_vertices.push_back(obs2);
+        // vector<Point> obs2;
+        // obs2.push_back(Point(5.5, 9.75));
+        // obs2.push_back(Point(5.5, -9.75));
+        // obs2.push_back(Point(9.5, -9.75));
+        // obs2.push_back(Point(9.5, 9.75));
+        // obstacle_vertices.push_back(obs2);
 
-        vector<Point> obs3;
-        obs3.push_back(Point(-5, -2));
-        obs3.push_back(Point(-5, -3));
-        obs3.push_back(Point(-3, -3));
-        obs3.push_back(Point(-3, -2));
-        obstacle_vertices.push_back(obs3);
+        // vector<Point> obs3;
+        // obs3.push_back(Point(-5, -2));
+        // obs3.push_back(Point(-5, -3));
+        // obs3.push_back(Point(-3, -3));
+        // obs3.push_back(Point(-3, -2));
+        // obstacle_vertices.push_back(obs3);
 
-        vector<Point> obs4;
-        obs3.push_back(Point(-1, 9.4));
-        obs4.push_back(Point(-1, 8.6));
-        obs4.push_back(Point(1, 8.6));
-        obs4.push_back(Point(1, 9.4));
-        obstacle_vertices.push_back(obs4);
+        // vector<Point> obs4;
+        // obs3.push_back(Point(-1, 9.4));
+        // obs4.push_back(Point(-1, 8.6));
+        // obs4.push_back(Point(1, 8.6));
+        // obs4.push_back(Point(1, 9.4));
+        // obstacle_vertices.push_back(obs4);
 
-        for (const auto& obs : obstacle_vertices) {
-            for (unsigned i = 0; i < obs.size(); ++i) {
-            total_edges.push_back(Edge(Point(obs[i].x, obs[i].y), Point(obs[(i+1)%obs.size()].x, obs[(i+1)%obs.size()].y)));
+        // for (const auto& obs : obstacle_vertices) {
+        //     for (unsigned i = 0; i < obs.size(); ++i) {
+        //     total_edges.push_back(Edge(Point(obs[i].x, obs[i].y), Point(obs[(i+1)%obs.size()].x, obs[(i+1)%obs.size()].y)));
 
-            }
-        }
+        //     }
+        // }
 
 
-        //TODO remove
-        cylinder_obstacles.push_back(make_pair(2.5, Point(2.3, -2.5)));
+        // //TODO remove
+        // cylinder_obstacles.push_back(make_pair(2.5, Point(2.3, -2.5)));
 
-        //TODO remove
-        gates.push_back(Point(-1, -9.4));
+        // //TODO remove
+        // gates.push_back(Point(-1, -9.4));
 
-        //TODO remove
-        robot_positions["shelfino1"] = Point(2, 5);
-        robot_positions["shelfino2"] = Point(-2, 5);
-        robot_positions["shelfino3"] = Point(-2, 1);
+        // //TODO remove
+        // robot_positions["shelfino1"] = Point(2, 5);
+        // robot_positions["shelfino2"] = Point(-2, 5);
+        // robot_positions["shelfino3"] = Point(-2, 1);
 
 
         if (vertices.empty()) { // only generate the graph with the first call
@@ -608,7 +736,7 @@ class RoadmapServer : public rclcpp::Node
             //         min_x = edge.p1.x;
             //     }
 
-            //     if (edge.p2.x < min_x) {
+            //     if (edge.p2.x buildVertices< min_x) {
             //         min_x = edge.p2.x;
             //     }
 
@@ -703,41 +831,51 @@ class RoadmapServer : public rclcpp::Node
 
             // make_random_nodes(min_x, max_x, min_y, max_y);
 
+            vector<pair<id_t, string>> start_ids = addStart();
+            for (auto& p : start_ids) {
+                response->start_ids.push_back(p.first);
+                response->names.push_back(p.second);
+            }
+            response->gate_id = addEnd()[0];
+
             RCLCPP_INFO(this->get_logger(), "We have %zu vertices", vertices.size());
         }
 
         
         // RCLCPP_INFO(this->get_logger(), "We have %zu points in the map", point_map.size());
 
+        
+        RCLCPP_INFO(this->get_logger(), "We have %zu vertices", vertices.size());
+
         response->vertices = nodes;
 
-        Point gate = {gates[0].x, gates[0].y};
-        response->gate_id = getClosestVertex(gate);
-        for (auto it = robot_positions.begin(); it != robot_positions.end(); ++it) {
-            Point start = {(float)it->second.x, (float)it->second.y};
-            response->start_ids.push_back(getClosestVertex(start));
-            response->names.push_back(it->first);
-        }
+        // Point gate = {gates[0].x, gates[0].y};
+        // response->gate_id = getClosestVertex(gate);
+        // for (auto it = robot_positions.begin(); it != robot_positions.end(); ++it) {
+        //     Point start = {(float)it->second.x, (float)it->second.y};
+        //     response->start_ids.push_back(getClosestVertex(start));
+        //     response->names.push_back(it->first);
+        // }
 
-        string s = "[";
-        for (QuadNode q : quads) {
-            s += "[" + to_string(q.x) + ", " + to_string(q.y) + ", " + to_string(q.size) + ", " + to_string(q.size) + "], ";
-        }
+        // string s = "[";
+        // for (QuadNode q : quads) {
+        //     s += "[" + to_string(q.x) + ", " + to_string(q.y) + ", " + to_string(q.size) + ", " + to_string(q.size) + "], ";
+        // }
 
-        s.erase(s.size()-2, 2);
-        s += "]";
+        // s.erase(s.size()-2, 2);
+        // s += "]";
 
-        string t = "[";
-        for (auto& edge : generated_edges) {
-            t += "[" + to_string(edge.first.x + edge.first.size / 2) + ", " + to_string(edge.first.y + edge.first.size / 2) + ", " + to_string(edge.second.x  + edge.second.size / 2) + ", " + to_string(edge.second.y + edge.second.size / 2) + "], ";
-        }
+        // string t = "[";
+        // for (auto& edge : generated_edges) {
+        //     t += "[" + to_string(edge.first.x + edge.first.size / 2) + ", " + to_string(edge.first.y + edge.first.size / 2) + ", " + to_string(edge.second.x  + edge.second.size / 2) + ", " + to_string(edge.second.y + edge.second.size / 2) + "], ";
+        // }
 
-        t.erase(t.size()-2, 2);
-        t += "]";
+        // t.erase(t.size()-2, 2);
+        // t += "]";
 
-        RCLCPP_INFO(this->get_logger(), "%s", s.c_str());
-        RCLCPP_INFO(this->get_logger(), "---------");
-        RCLCPP_INFO(this->get_logger(), "%s", t.c_str());
+        // RCLCPP_INFO(this->get_logger(), "%s", s.c_str());
+        // RCLCPP_INFO(this->get_logger(), "---------");
+        // RCLCPP_INFO(this->get_logger(), "%s", t.c_str());
 
 
         
