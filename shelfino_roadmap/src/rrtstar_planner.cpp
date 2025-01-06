@@ -9,6 +9,7 @@
 #include "geometry_msgs/msg/polygon.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/point32.hpp"
+#include "path_interface/srv/move_robots.hpp"
 
 bool complete = false;
 
@@ -91,7 +92,6 @@ class RRTStarPlanner : public rclcpp::Node {
 		auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 		// auto global_path_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
 
-
 		rclcpp::SubscriptionOptions amcl_pose_options;
 		amcl_pose_options.callback_group = amcl_pose_cb_group;
 
@@ -146,12 +146,20 @@ class RRTStarPlanner : public rclcpp::Node {
 			double radius = 1.0;
 			RRTstar rrtstar(&graph, step_size, radius);
 
-			// Compute the path
+			// TODO Compute the path array
 			std::vector<id_t> path = rrtstar.findPath(
 				start_pose.position.x, start_pose.position.y, goal[0].x, goal[0].y
 			);
 
-			// TODO: Call follow path client
+			// TODO call follow_path client with path_array
+			if (!move_robots_client_->wait_for_service(std::chrono::seconds(5))) {
+				RCLCPP_ERROR(this->get_logger(), "Cannot call move_robots service after waiting 5 seconds");
+				return;
+			}
+			auto move_robots_request = std::make_shared<path_interface::srv::MoveRobots::Request>();
+			move_robots_request->paths = path_array;
+			move_robots_client_->async_send_request(move_robots_request);
+			complete = true;			
 
 
 		}
@@ -163,7 +171,8 @@ class RRTStarPlanner : public rclcpp::Node {
 		rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
   		rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
 		rclcpp::Subscription<Polygon>::SharedPtr subscription_gates_;	
-        rclcpp::Client<path_interface::srv::GenerateGraph>::SharedPtr client_;
+		rclcpp::Client<path_interface::srv::MoveRobots>::SharedPtr move_robots_client_;
+
 
 
 		// ROBOTS' NAME
