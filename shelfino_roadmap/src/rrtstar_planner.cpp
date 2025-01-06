@@ -14,12 +14,12 @@
 
 bool complete = false;
 
-RRTstar::Graph graph;
-// TODO <vector>
-geometry_msgs::msg::Pose start_pose;
+
+
+
 std::vector<RRTstar::Point> start_point;
 std::vector<RRTstar::Point> goal;
-std::map<std::string, PoseWithCovarianceStamped> robot_poses_;
+std::map<std::string, geometry_msgs::msg::PoseWithCovarianceStamped> robot_poses_;
 std::map<std::string, std::vector<id_t>> robot_paths;
 
 
@@ -101,7 +101,9 @@ class RRTStarPlanner : public rclcpp::Node {
 		// rclcpp::SubscriptionOptions global_path_options;
 		// global_path_options.callback_group = global_path_cb_group;  
 
-		
+		std::map<std::string, geometry_msgs::msg::PoseWithCovarianceStamped> robot_poses_;
+		std::map<std::string, std::vector<RRTstar::Point>> robot_paths;	
+		RRTstar::Graph graphmap;	
 		
 
         void getPath() {		
@@ -114,37 +116,36 @@ class RRTStarPlanner : public rclcpp::Node {
 			// Initialize RRT* Planner
 			double step_size = 0.1;
 			double radius = 1.0;
-			RRTstar rrtstar(&graph, step_size, radius);
+			RRTstar rrtstar(&graphmap, step_size, radius);
 
 
 			// FIND THE PATHs FOR 3 ROBOTS
 			for (const auto& pair : robot_poses_){
-				std::string robot_name = pair.first
-				const auto& pose_msg = pair.second
-				double start_x = pose_msg.second.pose.pose.position.x;
-				double start_y = pose_msg.second.pose.position.y;
+				std::string robot_name = pair.first;
+				const auto& pose_msg = pair.second;
+				double start_x = pose_msg.pose.pose.position.x;
+				double start_y = pose_msg.pose.pose.position.y;
 				double goal_x = goal[0].x;
 				double goal_y = goal[0].y;
 
 				// find path using RRT*
-				std::vector<id_t> path = rrtstar.findPath(start_x, start_y, goal_x, goal_y);
-				all_paths.push_back(path);
+				std::vector<RRTstar::Point> path = rrtstar.findPath(start_x, start_y, goal_x, goal_y);
 				robot_paths[robot_name] = path;
 			}
 
 			path_interface::msg::PathArray path_array;
 			
-
-			for (auto it = robot_paths.begin(); it != paths.end(); ++it) {
+			for (auto it = robot_paths.begin(); it != robot_paths.end(); ++it) {
 				nav_msgs::msg::Path path_msg;
 
-				for (auto id : it->second) {
-					geometry_msgs::msg::PoseStamped pose;
-					GVertex v = vertices[id];
-					pose.pose.position.x = v.getx();
-					pose.pose.position.y = v.gety();
-					path_msg.poses.push_back(pose);
-					RCLCPP_INFO(this->get_logger(), "path id: %d, x: %f, y: %f", id, v.getx(), v.gety());
+				for (auto id : it->first) {
+					for ( RRTstar::Point n : it ->second ){
+						geometry_msgs::msg::PoseStamped pose;
+						pose.pose.position.x = n.x;
+						pose.pose.position.y = n.y;
+						path_msg.poses.push_back(pose);
+						RCLCPP_INFO(this->get_logger(), "path id: %d, x: %f, y: %f", id, n.x, n.y);
+					}
 				}
 				RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
 				path_array.paths.push_back(path_msg);
@@ -169,10 +170,10 @@ class RRTStarPlanner : public rclcpp::Node {
 		//rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
 		rclcpp::Subscription<obstacles_msgs::msg::ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
   		rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription_borders_;
-		rclcpp::Subscription<geometry_msgs::msg::Polygon>::SharedPtr subscription_gates_;	
+		rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr subscription_gates_;	
 		rclcpp::Client<path_interface::srv::MoveRobots>::SharedPtr move_robots_client_;
 
-
+		
 
 		// STARTING POINTS 
 		void position_callback(const std::string name, const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
@@ -185,11 +186,11 @@ class RRTStarPlanner : public rclcpp::Node {
 		// OBSTACLES
 		void obstacles_callback(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
 		{
-			graph.obstacles.clear();
+			graphmap.obstacles.clear();
 
 			for (const auto &obs : msg->obstacles) {
-				Obstacle obstacles_info;
-				vector<geometry_msgs::msg::Point32> points = obs.polygon.points;
+				RRTstar::Obstacle obstacles_info;
+				std::vector<geometry_msgs::msg::Point32> points = obs.polygon.points;
 
 				// FOR CYLINDER
 				if (obs.radius > 0.0) { 
@@ -198,7 +199,7 @@ class RRTStarPlanner : public rclcpp::Node {
 					obstacles_info.x = obs.polygon.points[0].x;
 					obstacles_info.y = obs.polygon.points[0].y;
 					obstacles_info.radius = obs.radius;
- 					graph.obstacles.push_back(obstacles_info);
+ 					graphmap.obstacles.push_back(obstacles_info);
 				}
 
 				else{
@@ -209,7 +210,7 @@ class RRTStarPlanner : public rclcpp::Node {
 						//total_edges.push_back(Edge(Point(points[i].x, points[i].y), Point(points[(i+1)%points.size()].x, points[(i+1)%points.size()].y)));
 						obstacles_info.vertices.emplace_back(points[i].x, points[i].y);
 					}
-					graph.obstacles.push_back(obstacles_info);					
+					graphmap.obstacles.push_back(obstacles_info);					
 				}
 
 				
@@ -220,26 +221,35 @@ class RRTStarPlanner : public rclcpp::Node {
 		// BORDERS VERTICES
 		void borders_callback(const geometry_msgs::msg::Polygon msg)
 		{
-			graph.borders.clear();
-			vector<geometry_msgs::msg::Point32> points = msg.points;
+			graphmap.borders.clear();
+			std::vector<geometry_msgs::msg::Point32> points = msg.points;
 			for (unsigned i = 0; i < points.size(); ++i) {
 				RCLCPP_INFO(this->get_logger(), "I heard a border vertex: '%f', '%f'", points[i].x, points[i].y);
 				//total_edges.push_back(Edge(Point(points[i].x, points[i].y), Point(points[(i+1)%points.size()].x, points[(i+1)%points.size()].y)));
-				graph.borders.push_back(Point(points[i].x, points[i].y));
+				graphmap.borders.push_back(RRTstar::Point(points[i].x, points[i].y));
 			}	
 		}
 
 
 
 		// GATE = GOAL
+		// void gates_callback(const geometry_msgs::msg::PoseArray::SharedPtr msg) {
+		// 	for (const auto& p : msg->poses) {
+		// 		RCLCPP_INFO(this->get_logger(), "I heard a gate vertex: '%f', '%f'", p.position.x, p.position.y);
+		// 		goal.push_back(RRTstar::Point(p.position.x, p.position.y));
+		// 	}
+		// }
+
 		void gates_callback(const geometry_msgs::msg::PoseArray msg) {
-			//vector<geometry_msgs::msg::Pose> poses = msg.poses;
-			for (const auto& p : msg-> poses) {
-				RCLCPP_INFO(this->get_logger(), "I heard a gate vertex: '%f', '%f'", p.position.x, p.position.y);
-				goal.push_back(Point(p.position.x, p.position.y));
-			}
-		}	
-}
+        std::vector<geometry_msgs::msg::Pose> poses = msg.poses;
+        for (geometry_msgs::msg::Pose& p : poses) {
+            RCLCPP_INFO(this->get_logger(), "I heard a gate vertex: '%f', '%f", p.position.x, p.position.y);
+            goal.push_back(RRTstar::Point(p.position.x, p.position.y));
+        }
+    }	
+
+                                                         // get gates yaw[x,y,yaw]
+};
 
 int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);

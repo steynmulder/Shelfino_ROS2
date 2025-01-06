@@ -1,6 +1,5 @@
 #pragma once
 
-#include "GVertex.h"
 #include <vector>
 #include "Dubins.h"  
 #include <map>
@@ -80,14 +79,17 @@ class RRTstar
 
     };
     // Constructor inheriting from Algorithm and initializing RRT* parameters
-    RRTstar(Graph* graph, double step_size, double search_radius);
+    RRTstar(Graph* graph, double step_size, double search_radius)
+    : graph(graph), step_size(step_size), search_radius(search_radius) {}
 
-    std::vector<id_t> findPath(double start_x, double start_y, double goal_x, double goal_y);
+
+
+    std::vector<RRTstar::Point> findPath(double start_x, double start_y, double goal_x, double goal_y);
 
 private:
     double step_size;     // Maximum step size for tree expansion
     double search_radius; // Radius for considering nodes during rewiring
-
+    RRTstar::Graph* graph;
     
 
 

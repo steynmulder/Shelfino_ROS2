@@ -8,15 +8,14 @@
 
 // class RRTstar {
 // public:
-//     RRTstar(Graph* graph, double step_size, double search_radius)
+//     RRTstar(Graph graph, double step_size, double search_radius)
 //         : graph(graph), step_size(step_size), search_radius(search_radius) {}
 
 //     std::vector<id_t> findPath(double start_x, double start_y, double goal_x, double goal_y);
 
 // private:
-    RRTstar::Graph* graph;
-    double step_size;
-    double search_radius;
+    // RRTstar::Graph* graph;
+
 
 //     // MULTI AGENT
 //     void resolveConflict(size_t t, id_t conflict_id, id_t end_id, vector<string>& names, map<string, vector<id_t>>& paths, map<id_t, GVertex>& graph);
@@ -25,7 +24,7 @@
 // };
 
 // Main RRT* pathfinding function
-std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_x, double goal_y) {
+std::vector<RRTstar::Point> RRTstar::findPath(double start_x, double start_y, double goal_x, double goal_y) {
     std::vector<Node*> tree;
     tree.push_back(new Node(0, start_x, start_y));
 
@@ -63,10 +62,11 @@ std::vector<id_t> RRTstar::findPath(double start_x, double start_y, double goal_
     }
 
     // Reconstruct path from goal_node
-    std::vector<id_t> path;
+    std::vector<RRTstar::Point> path;
     Node* current = goal_node;
     while (current) {
-        path.push_back(current->id);
+        path.push_back(RRTstar::Point(current->x, current->y));
+
         current = current->parent;
     }
     std::reverse(path.begin(), path.end());

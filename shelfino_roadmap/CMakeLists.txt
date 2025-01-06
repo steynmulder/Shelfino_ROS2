@@ -22,8 +22,8 @@ ament_target_dependencies(send_roadmap rclcpp obstacles_msgs geometry_msgs path_
 add_executable(astar_planner src/astar_planner.cpp src/GEdge.cpp src/GVertex.cpp src/Astar.cpp src/Dubins.cpp)
 ament_target_dependencies(astar_planner rclcpp obstacles_msgs geometry_msgs path_interface nav_msgs)
 
-add_executable(rrtstar_planner src/rrtstar_planner.cpp src/RRTstar.cpp src/GVertex.cpp src/Dubins.cpp)
-ament_target_dependencies(rrtstar_planner RRTstar rclcpp obstacles_msgs geometry_msgs path_interface nav_msgs)
+add_executable(rrtstar_planner src/rrtstar_planner.cpp src/RRTstar.cpp src/Dubins.cpp)
+ament_target_dependencies(rrtstar_planner rclcpp obstacles_msgs geometry_msgs path_interface nav_msgs)
 
 # target_include_directories(astar PUBLIC
 #   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
