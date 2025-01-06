@@ -84,8 +84,43 @@ class RRTStarPlanner : public rclcpp::Node {
 
 		// shelfino#/initialpose? 
 		// !TODO: this topic needs to be modfified!
-        subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
-            "/amcl_pose", qos, std::bind(&RRTStarPlanner::position_callback, this, std::placeholders::_1));
+        // subscription_robot_position_ = this->create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
+        //     "/amcl_pose", qos, std::bind(&RRTStarPlanner::position_callback, this, std::placeholders::_1));
+
+		// Create a callback group
+		auto amcl_pose_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+		// auto global_path_cb_group = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+
+
+		rclcpp::SubscriptionOptions amcl_pose_options;
+		amcl_pose_options.callback_group = amcl_pose_cb_group;
+
+		// rclcpp::SubscriptionOptions global_path_options;
+		// global_path_options.callback_group = global_path_cb_group;  
+
+		if (robot_names.empty())
+		{
+			RCLCPP_WARN(this->get_logger(), "There are no robots in the parameter file!");
+			return;
+		}
+
+		for (const auto &robot_name : robot_names)
+		{
+			std::string topic_name = "/" + robot_name + "/amcl_pose";
+
+
+			RCLCPP_INFO(this->get_logger(), "Subscribing to: %s", topic_name.c_str());
+			
+			auto callback = [this, robot_name](const PoseWithCovarianceStamped::SharedPtr msg) {
+				this->position_callback(robot_name, msg);
+			};
+
+			robot_position_subscribers_.emplace_back(
+				this->create_subscription<PoseWithCovarianceStamped>(
+					topic_name, qos, callback, amcl_pose_options));
+		}
+
+		
 
 		// obstacles and boders
         subscription_obstacles_ = this->create_subscription<obstacles_msgs::msg::ObstacleArrayMsg>(
@@ -123,18 +158,26 @@ class RRTStarPlanner : public rclcpp::Node {
        
 
     private:
-		rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
+	  	std::vector<rclcpp::Subscription<PoseWithCovarianceStamped>::SharedPtr> robot_position_subscribers_;
+		//rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr subscription_robot_position_;
 		rclcpp::Subscription<ObstacleArrayMsg>::SharedPtr subscription_obstacles_;
   		rclcpp::Subscription<Polygon>::SharedPtr subscription_borders_;
 		rclcpp::Subscription<Polygon>::SharedPtr subscription_gates_;	
         rclcpp::Client<path_interface::srv::GenerateGraph>::SharedPtr client_;
 
 
-		// TODO: STARTING POINT
-		void position_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-			start_pose = msg->pose.pose;
-		}
+		// ROBOTS' NAME
+		void position_callback(const std::string name, const PoseWithCovarianceStamped::SharedPtr msg)
+		{
+		this->shelfino_pose = msg->pose.pose;                             // store shelfino pose[x,y] in shelfino_pose
+		this->robot_poses_.emplace_back(*msg);                            // an vector of shelfinos' poses
+		RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
+		}		
 
+		// // TODO: STARTING POINT
+		// void position_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
+		// 	start_pose = msg->pose.pose;
+		// }
 
 		// OBSTACLES
 		void obstacles_callback(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)
