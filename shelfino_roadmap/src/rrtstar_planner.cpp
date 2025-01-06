@@ -9,13 +9,18 @@
 #include "geometry_msgs/msg/polygon.hpp"
 #include "geometry_msgs/msg/point.hpp"
 #include "geometry_msgs/msg/point32.hpp"
+#include "nav_msgs/msg/path.hpp"
 #include "path_interface/srv/move_robots.hpp"
 
 bool complete = false;
 
 RRTstar::Graph graph;
+// TODO <vector>
 geometry_msgs::msg::Pose start_pose;
+std::vector<RRTstar::Point> start_point;
 std::vector<RRTstar::Point> goal;
+std::map<std::string, PoseWithCovarianceStamped> robot_poses_;
+std::map<std::string, std::vector<id_t>> robot_paths;
 
 
 class RRTStarPlanner : public rclcpp::Node {
@@ -74,7 +79,10 @@ class RRTStarPlanner : public rclcpp::Node {
 				"/map_borders", qos, bind(&RRTStarPlanner::borders_callback, this, std::placeholders::_1));
 
 			subscription_gates_= this->create_subscription<geometry_msgs::msg::PoseArray>(
-				"/gates", qos, bind(&RRTStarPlanner::gates_callback, this, std::placeholders::_1));		
+				"/gates", qos, bind(&RRTStarPlanner::gates_callback, this, std::placeholders::_1));
+
+			// move_robot_client
+			move_robots_client_ = this->create_client<path_interface::srv::MoveRobots>("start");
 
 			}
 
@@ -101,20 +109,49 @@ class RRTStarPlanner : public rclcpp::Node {
 				RCLCPP_WARN(this->get_logger(), "Goal is not set. Skipping path computation.");
 				return;
 			}
-			
-			// TODO define the input parameters
-			
+
+
 			// Initialize RRT* Planner
 			double step_size = 0.1;
 			double radius = 1.0;
 			RRTstar rrtstar(&graph, step_size, radius);
 
-			// TODO Compute the path array
-			std::vector<id_t> path = rrtstar.findPath(
-				start_pose.position.x, start_pose.position.y, goal[0].x, goal[0].y
-			);
 
-			// TODO call follow_path client with path_array
+			// FIND THE PATHs FOR 3 ROBOTS
+			for (const auto& pair : robot_poses_){
+				std::string robot_name = pair.first
+				const auto& pose_msg = pair.second
+				double start_x = pose_msg.second.pose.pose.position.x;
+				double start_y = pose_msg.second.pose.position.y;
+				double goal_x = goal[0].x;
+				double goal_y = goal[0].y;
+
+				// find path using RRT*
+				std::vector<id_t> path = rrtstar.findPath(start_x, start_y, goal_x, goal_y);
+				all_paths.push_back(path);
+				robot_paths[robot_name] = path;
+			}
+
+			path_interface::msg::PathArray path_array;
+			
+
+			for (auto it = robot_paths.begin(); it != paths.end(); ++it) {
+				nav_msgs::msg::Path path_msg;
+
+				for (auto id : it->second) {
+					geometry_msgs::msg::PoseStamped pose;
+					GVertex v = vertices[id];
+					pose.pose.position.x = v.getx();
+					pose.pose.position.y = v.gety();
+					path_msg.poses.push_back(pose);
+					RCLCPP_INFO(this->get_logger(), "path id: %d, x: %f, y: %f", id, v.getx(), v.gety());
+				}
+				RCLCPP_INFO(this->get_logger(), "path size: %zu", it->second.size());
+				path_array.paths.push_back(path_msg);
+				path_array.names.push_back(it->first);
+			}
+
+			// call follow_path client with path_array
 			if (!move_robots_client_->wait_for_service(std::chrono::seconds(5))) {
 				RCLCPP_ERROR(this->get_logger(), "Cannot call move_robots service after waiting 5 seconds");
 				return;
@@ -123,7 +160,6 @@ class RRTStarPlanner : public rclcpp::Node {
 			move_robots_request->paths = path_array;
 			move_robots_client_->async_send_request(move_robots_request);
 			complete = true;			
-
 
 		}
        
@@ -138,18 +174,13 @@ class RRTStarPlanner : public rclcpp::Node {
 
 
 
-		// ROBOTS' NAME
+		// STARTING POINTS 
 		void position_callback(const std::string name, const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg)
 		{
-		this->shelfino_pose = msg->pose.pose;                             // store shelfino pose[x,y] in shelfino_pose
-		this->robot_poses_.emplace_back(*msg);                            // an vector of shelfinos' poses
-		RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
+			this->robot_poses_[name] = *msg;                            // an vector of shelfinos' poses
+			RCLCPP_INFO(this->get_logger(), "Received shelfino pose: x=%f, y=%f", msg->pose.pose.position.x, msg->pose.pose.position.y);
 		}		
 
-		// // TODO: STARTING POINT
-		// void position_callback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
-		// 	start_pose = msg->pose.pose;
-		// }
 
 		// OBSTACLES
 		void obstacles_callback(const obstacles_msgs::msg::ObstacleArrayMsg::SharedPtr msg)

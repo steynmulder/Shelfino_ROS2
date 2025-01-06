@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <random>
 #include <map>
-#include "Dubins.h"
 
 
 // class RRTstar {
@@ -159,20 +158,20 @@ void RRTstar::rewire(std::vector<RRTstar::Node*>& tree, RRTstar::Node* new_node,
 
 
 // MULTI AGENT PART
-std::map<id_t, std::vector<std::string>> getConflicts(std::vector<std::pair<std::string, id_t>>& positions) {
-	std::map<id_t, std::vector<std::string>> conflicting_names;
-	for (std::pair<std::string, id_t> position : positions) {
-		conflicting_names[position.second].push_back(position.first);
-	}
+// std::map<id_t, std::vector<std::string>> getConflicts(std::vector<std::pair<std::string, id_t>>& positions) {
+// 	std::map<id_t, std::vector<std::string>> conflicting_names;
+// 	for (std::pair<std::string, id_t> position : positions) {
+// 		conflicting_names[position.second].push_back(position.first);
+// 	}
 
-	for (auto it = conflicting_names.begin(); it != conflicting_names.end(); ++it) {
-		if (it->second.size() < 2) {
-			it = conflicting_names.erase(it);
-		}
-	}
+// 	for (auto it = conflicting_names.begin(); it != conflicting_names.end(); ++it) {
+// 		if (it->second.size() < 2) {
+// 			it = conflicting_names.erase(it);
+// 		}
+// 	}
 
-	return conflicting_names;
-}
+// 	return conflicting_names;
+// }
 
 
 // void RRTstar::resolveConflict(size_t t, id_t conflict_id, id_t end_id, std::vector<std::string>& names, std::map<std::string, std::vector<id_t>>& paths, std::map<id_t, GVertex>& graph) {
