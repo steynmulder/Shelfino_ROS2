@@ -154,7 +154,7 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
   RCLCPP_INFO(this->get_logger(), "Navigating to x=%f, y=%f, yaw=%f", this->gate_pose.position.x, this->gate_pose.position.y, get_yaw_from_q(this->gate_pose.orientation));
 
   // generate dubins path
-  for (size_t robot_idx = 0; robot_idx < 1; ++robot_idx) { //TODO request->paths.paths.size();++robot_idx){
+  for (size_t robot_idx = 0; robot_idx < request->paths.paths.size();++robot_idx){
     RCLCPP_INFO(this->get_logger(), "path size: %zu", request->paths.paths[robot_idx].poses.size());
     const std::string &robot_name = request->paths.names[robot_idx];
     const auto &global_path = request->paths.paths[robot_idx];
@@ -172,6 +172,9 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
       float th_start = get_yaw_from_q(this->robot_poses_[robot_name].pose.pose.orientation);
       float th_goal = this->goal_yaw;
       int k = 360;
+
+      // RCLCPP_INFO(this->get_logger(),"robot yaw: %f, robot z: %f, robot w: %f", th_start, this->robot_poses_[robot_name].pose.pose.orientation.z, this->robot_poses_[robot_name].pose.pose.orientation.w);
+
 
       std::map<int, float> thetas;
       std::map<int, DubinsCurve> curves;
@@ -239,6 +242,9 @@ void follow_client::start_callback(const std::shared_ptr<MoveRobots::Request> re
             std::tie(x,y,th) = computeArcPoint(s - curve.a1.L,curve.a3);        
           }
           // RCLCPP_INFO(this->get_logger(), "sample: %i - s: %f - x: %f, y: %f - L: %f", j, s, (float)x, (float)y, (float)curve.L);
+
+          // RCLCPP_INFO(this->get_logger(),"pose z: %f, pose w: %f", sin(th/2), cos(th/2));
+
 
           // Add points into path
           geometry_msgs::msg::PoseStamped pose_stamped;
